@@ -5,16 +5,16 @@ output:
   html_document:
     fig_caption: true
     highlight: tango
-    self_contained: yes
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 knitr::opts_chunk$set(cache.path = "cache/")
+opts_knit$set(upload.fun = function(file) {RWordPress::uploadFile(file)$url })
 options(na.action = "na.pass")
 ```
 
-Model-based optimization (MBO) - aka Bayesian optimization - is a fast method for tuning the hyperparameters of a machine learning algorithm. Compared to the brute-force approach of testing a large grid of potential hyperparameter combinations, MBO finds a global optimum with fewer evaluations and less manual effort. And for the those who love statistics - it is a probabilistic approach which utilizes Gaussian Process (GP) smoothing ("kriging") to create new proposals by interpolation between the results of initial testing points.
+Model-based optimization (MBO) is a smart approach to tuning the hyperparameters of machine learning algorithms with less CPU time and manual effort than standard grid search approaches. The core idea behind MBO is to directly evaluate fewer points within a hyperparameter space, and to instead use a "surrogate model" which *estimates* what the result of your objective function would be in new locations by interpolating (not linearly) between the observed results in a small sample of initial evaluations. Many methods can be used to construct the surrogate model. This post will focus on implementing the bayesian method of Gaussian Process (GP) smoothing (aka "kriging") which is borrowed from - and particularly well-suited to - spatial applications.
 <!-- wp:more -->
 <!--more-->
 <!-- /wp:more -->
@@ -31,10 +31,11 @@ MBO differs from grid search in a couple of ways. First, we search the entire co
 
 As mentioned above, the method for selecting later test points based on the information from the early tests is gaussian process smoothing or *kriging*. One popular application for Gaussian processes is in geo-spatial smoothing and regression. We are basically doing the same thing here, except instead of geographic (lat-long) space, our space is defined by the ranges of a set of hyperparameters. We refer to this as the hyperparameter space, and MBO is going to help us search it for the point which provides the optimal result of a machine learning algorithm.
 
-```{r gp, fig.cap = "A gaussian process estimator for the mean and envelope of a random walk\nSource: Wikimedia Commons, h/t Jacopo Bertolotti @j_bertolotti"}
-knitr::include_graphics('https://upload.wikimedia.org/wikipedia/commons/d/da/Gaussianprocess.gif')
+```{r gp, include = FALSE, fig.cap = "A gaussian process estimator for the mean and envelope of a random walk. Source: Wikimedia Commons, h/t Jacopo Bertolotti @j_bertolotti"}
+# knitr::include_graphics('https://upload.wikimedia.org/wikipedia/commons/d/da/Gaussianprocess.gif')
 ```
 
+<img src="https://upload.wikimedia.org/wikipedia/commons/d/da/Gaussianprocess.gif" />
 
 So let's take a look at how Bayes helps us tune machine learning algorithms with some code.
 
@@ -74,7 +75,7 @@ rm(freMPL1, freMPL2, freMPL3)
 ```
 
 Let's take a look at our target variable `ClaimAmount`
-```{r}
+```{r plot_target}
 gridExtra::grid.arrange(
   fre_df %>%
     filter(ClaimAmount > 0) %>%
@@ -130,6 +131,7 @@ To avoid confusion, there are two objective functions we could refer to. Statist
 Note that the function below also includes a defined hyperparameter space - a set of tuning parameters with possible ranges for values. There are 6 traditional tuning parameters for xgboost, but I've also added the tweedie variance "power" parameter as a seventh. This parameter would take a value between (1,2) for a poisson-gamma compound distribution, but I first narrowed this down to a smaller range based on a quick profile of the loss distribution (using `tweedie::tweedie.profile()`, omitted here).
 
 ```{r}
+# Adapted for Tweedie likelihood from this very good post at https://www.simoncoulombe.com/2019/01/bayesian/
 # objective function: we want to minimize the neg log-likelihood by tuning hyperparameters
 obj.fun <- makeSingleObjectiveFunction(
   name = "xgb_cv_bayes",
@@ -228,22 +230,23 @@ Here's my intial design of 15 points.
 des <- generateDesign(n=15,
                       par.set = getParamSet(obj.fun),
                       fun = lhs::randomLHS)
-DT::datatable(des, options = list(scrollX = TRUE,
-                                  pageLength = 15,
-                                  dom = 'tir')) %>%
-  DT::formatRound(c(1:2, 5:8))
+
+kable(des, format = "html", digits = 4) %>% 
+  kable_styling(font_size = 10) %>%
+  kable_material_dark()
+
 ```
 
 And here is a view to see how well those points fill out 3 of the 7 dimensions
 
-```{r}
+```{r 3d1}
 scatterplot3d(des$eta, des$gamma, des$min_child_weight,
               type = "h", color = "blue", pch = 16)
 ```
 
 We can see large areas with no nearby points - if the global optimum lies here, we *may* still end up with proposals in this area that lead us to find it, but it sure would be helpful to gather some info there and guarantee it. Here's a better design with 6 points per hyperparameter.
 
-```{r}
+```{r 3d2}
 des <- generateDesign(n=42,
                       par.set = getParamSet(obj.fun),
                       fun = lhs::randomLHS)
@@ -271,7 +274,7 @@ runs <- do_bayes(n_design = 15, of = obj.fun, opt_steps = 10, seed = 42)
 
 Results in hand, we want to check some diagnostics starting with the objective function evaluation for all of the runs.
 
-```{r, message=FALSE}
+```{r plot_path, message=FALSE}
 runs$plot
 ```
 
@@ -279,7 +282,7 @@ The plot above (see our `do_bayes()` function for how we extracted this info) sh
 
 The "default" viz below comes from the `plot()` S3 class method for `MBOSingleObjResult` and shows a few useful things, although the formatting could be improved. Most importantly, the top left plot shows the "scaled" values for each set of hyperparameters, for each run. Use this to confirm your recommended solution does not include any hyperparameter at the boundary of the values tested - if it does, then expand the range of that parameter in your objective function and re-run. In my example below, you can see that the optimal solution (the green line) includes a value for `max_depth` at the maximum of 10, and a `min_child_weight` at or near the minimum (300) of the range I had allowed.  Unless I were intentionally using these bounds to limit model complexity and improve generalization, I should try expanding the ranges of these hyperparameters and running again.
 
-```{r, fig.width=10,fig.height=11, message=FALSE}
+```{r plot_runs, fig.width=10,fig.height=11, message=FALSE}
 class(runs$run) %>% print
 plot(runs$run)
 ```
@@ -334,7 +337,7 @@ final.model <- xgboost(params = best.params[-11], ## do not include nrounds here
                        print_every_n = 500)
 ```
 
-```{r}
+```{r plot_varimp}
 xgb.importance(model = final.model) %>% xgb.plot.importance()
 ```
 

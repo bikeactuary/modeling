@@ -6,6 +6,10 @@ output:
     self_contained: yes
 ---
 
+```{r, include=FALSE}
+opts_knit$set(upload.fun = function(file) {RWordPress::uploadFile(file)$url })
+```
+
 People who do statistical modeling for insurance applications usually know their way around a GLM pretty well. In pricing applications, GLMs can produce a reasonable model to serve as the basis of a rating plan, but in my experience they are usually followed by a round of "selections" - a process to incorporate business considerations and adjust the "indicated" rate relativities to arrive at those which will be implemented (and filed with regulators, if required). Selections can be driven by various constraints and considerations external to the data such as:
 <!-- wp:more -->
 <!--more-->

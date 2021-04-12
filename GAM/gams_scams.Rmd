@@ -1,0 +1,694 @@
+---
+title: 
+output:
+  html_document:
+    highlight: tango
+    self_contained: yes
+---
+
+People who do statistical modeling for insurance applications usually know their way around a GLM pretty well. In pricing applications, GLMs can produce a reasonable model to serve as the basis of a rating plan, but in my experience they are usually followed by a round of "selections" - a process to incorporate business considerations and adjust the "indicated" rate relativities to arrive at those which will be implemented (and filed with regulators, if required). Selections can be driven by various constraints and considerations external to the data such as:
+
+- What is in the market currently?
+- What levels of rate disruption to the existing book are acceptable?
+- Would indicated rating relativities produce unaffordable rates for any customer segments?
+- Do rating differences between customer segments rise to the level of being "unfairly discriminatory"?
+- What will a regulator approve, or conversely, object to?
+- What are the IT/systems implementation constraints?
+    - Deploying models as containerized prediction APIs would eliminate such a question... but instead the prediction formulas are usually written in a stored procedure with SQL tables to hold parameter values
+- Are the proposed rating factors "intuitive", or is there a believable causal relationship to the predicted losses?
+
+Many or all of these questions will always need consideration post-modeling since they are not driven by shortcomings in the modeling approach or data quality.  Often other questions also motivate adjustments to the modeling, such as :
+
+- Will the proposed factors impact the customer experience negatively?
+    - For example, will there be "reversals" such that rates increase, then decrease, then increase again as a policy renews?
+- Do we have sufficient experience to give high confidence in our parameter estimates?
+- Where is our experience thin?
+- Are we extrapolating wildly beyond the range of our experience, producing rates that are too high or low in the tails?
+
+These considerations are of a different sort - they could be avoided in whole or in part with better modeling techniques.
+
+Enter Generalized Additive Models (GAMs) as a more flexible approach than the vanilla GLM. I'm a big fan of using GAMs for most things where a GLM may be the go-to - in both pricing and non-pricing (operational, underwriting, marketing, etc.) applications. GAMs are just an extension of the GLM and as such are accesible to actuaries and others who are already familiar with that framework. 
+
+
+# GAM Prediction Formula
+
+From the prediction perspective, the output of a GLM is an estimate of the expected value (mean) for an observation of the form
+
+$$
+\mu_i = g^{-1}(\eta) = g^{-1}(\beta_0 + \beta_1 x_{i,1} + \beta_2 x_{i,2} + ... + \beta_p x_{i,p})
+$$
+$g^-1$ is the inverse of a monotonic link function, and the linear predictor ($\eta$) is a linear combination of covariates and estimated coefficients (aka weights, parameters). This is a pretty inflexible model. In fact, on the link scale it's a linear model - the linear predictor surface is a hyperplane slicing through a feature space of dimension $p$. Compare to the relationship modeled by a GAM:
+
+$$
+\mu_i = g^{-1}(\eta) =  g^{-1}(\beta_0 + f_1(x_{i,1}) + f_2(x_{i,2}) + ... + f_p(x_{i,p}))
+$$
+Here we only assume $x$ enters the linear predictor via **some function** $f_x$, rather than directly in proportion to some $\beta$. This looser assumption allows for more flexible models if we can reliably estimate the $p$ non-linear functions $f$ somehow.
+
+It turns out that we can produce useful estimates for these functions - called a basis expansion of $x$. We will take a practical look at how that is done using the approach of thin plate splines, but first let's establish our baseline for comparison using the GLMs we are familiar with.
+
+# Data
+
+First we load some standard libraries for manipulating and visualizing data. The `mgcv` package was an important development in our computational ability to estimate GAMs and remains probably the most popular package in use today.
+
+```{r}
+library(CASdatasets)
+library(dplyr)
+library(tibble)
+library(magrittr)
+library(ggplot2)
+library(tidyr)
+library(mgcv)
+```
+
+We will use the french motor dataset from the `CASdatasets` library for fooling around here.
+
+```{r}
+data("freMPL6")
+```
+
+Let's have a glimpse at the data
+```{r}
+glimpse(freMPL6)
+```
+
+We have some typical policy elements here, including a pre-calculated exposure column, as well as some claim elements joined to the exposures. I'm curious how `Exposure` was calculated given the NAs that exist in the `RecordEnd` column, but we will just trust it for our purposes.
+
+I notice also that we have a column named `ClaimInd` rather than `ClaimCount` - let's confirm this is indeed a binary indicator of 0 or 1 (or more?) claims in the exposure period.
+
+```{r}
+table(freMPL6$ClaimInd)
+```
+
+One thing I want to change is to express `LicAge` in integral years rather than months. We would not throw out information like this normally, but for our purposes it will simplify some plotting.
+
+```{r}
+freMPL6 %<>% 
+  as_tibble() %>%
+  mutate(LicAge = floor(LicAge/12))
+```
+
+Let's start by looking at annualized claim frequency as a function of `LicAge` in years.
+
+```{r}
+dat_summ <- freMPL6 %>%
+  group_by(LicAge) %>%
+  summarise(claim_cnt = sum(ClaimInd),
+            Exposure = sum(Exposure),
+            obs_freq = claim_cnt / Exposure)
+
+dat_summ %>%
+  ggplot(aes(x = LicAge, y = obs_freq)) +
+  geom_line() +
+  ggtitle("Observed Claim Frequency by License Age")
+```
+
+This looks close to but not quite a linear effect. So now let's move into some modeling.
+
+# A GLM Baseline
+
+The GLM is in a sense just a special case of a GAM, where we are limited to estimates of the form $f(x) = \beta x$. Insurance practitioners will often approach a modeling analysis by fitting a GLM as follows...
+
+## The Lame GLM
+
+Fit a model to the raw feature(s)
+```{r}
+lame_glm <- glm(ClaimInd ~ LicAge,
+                offset = log(Exposure),
+                family = poisson(link = "log"), ## skip tests of poisson assumption, save for a future blog psot
+                data = freMPL6)
+```
+
+And then check for "significant" predictors
+
+```{r}
+summary(lame_glm)
+```
+
+Finally, visually inspect the fit against the mean observed response (we use the summarised data for this)
+
+```{r, warning=FALSE}
+dat_summ %>%
+  mutate(lame_fit = predict(lame_glm, ., type = "response") / Exposure  ) %>%
+  gather(key = "metric", value = "freq", obs_freq, lame_fit) %>%
+  ggplot(aes(x = LicAge, y = freq, color = metric)) +
+  geom_line() +
+  ggtitle("Fit vs Observed")
+```
+
+Good enough, back to studying for an exam.
+
+Well maybe not...what's going on at the tails of our domain? Are we just seeing the process variance due to low exposure? How good is this linear curve?
+
+```{r, warning=F}
+gridExtra::grid.arrange(
+  
+  dat_summ %>%
+    mutate(lame_fit = predict(lame_glm, ., type = "response") / Exposure  ) %>%
+    gather(key = "metric", value = "freq", obs_freq, lame_fit) %>%
+    ggplot(aes(x = LicAge, y = freq, color = metric)) +
+    geom_line() +
+    ggtitle("Fit vs Observed") +
+    theme(axis.title.x = element_blank(),
+          axis.ticks.x = element_blank(), 
+          axis.text.x = element_blank(),
+          legend.position = c(.15,.2) ),
+  
+  dat_summ %>%
+    ggplot(aes(x = LicAge, y = Exposure)) +
+    geom_bar(stat = 'identity'),
+  
+  heights = c(2,1)
+)
+
+```
+
+The exposure is certainly lower in the each tail, but too low? Is pattern in the observed mean at the tails purely "noise" or is there a credible "signal" here? Of course we can't tell from a graph - we need some statistics. At this point, depending on the practitioner, the linear fit might be accepted and some post-modeling selections proposed to better fit the observed if it is believed to be signal and not noise.
+
+## A little better
+
+Given the data above an attentive modeler would probably introduce some "feature engineering" into the analysis by creating a new column, a log-transform of `LicAge`, to test in a second (or perhaps the first) candidate model. For many, some standard transformations of raw features are created at the outset before any models are fit.
+
+```{r}
+freMPL6 %<>%  ## mutate and update data
+  mutate(log_LicAge = log(LicAge))
+
+better_glm <- glm(ClaimInd ~ log_LicAge, ## new term
+                 offset = log(Exposure),
+                 family = poisson(link = "log"),
+                 data = freMPL6)
+```
+
+We recreate the summarised data for plotting
+
+```{r}
+dat_summ <- freMPL6 %>%
+  group_by(LicAge) %>%
+  summarise(claim_cnt = sum(ClaimInd),
+            Exposure = sum(Exposure),
+            obs_freq = claim_cnt / Exposure,
+            log_LicAge = first(log_LicAge))
+
+```
+
+and compare the two curves graphically
+
+```{r, warning=F}
+gridExtra::grid.arrange(
+  
+  dat_summ %>%
+    mutate(lame_fit = predict(lame_glm, ., type = "response") / Exposure,
+           better_fit = predict(better_glm, ., type = "response") / Exposure) %>%
+    gather(key = "metric", value = "freq", obs_freq, lame_fit, better_fit) %>%
+    ggplot(aes(x = LicAge, y = freq, color = metric)) +
+    geom_line() +
+    ggtitle("Fit vs Observed") +
+    theme(axis.title.x = element_blank(),
+          axis.ticks.x = element_blank(), 
+          axis.text.x = element_blank(),
+          legend.position = c(.15,.2) ),
+  
+  dat_summ %>%
+    ggplot(aes(x = LicAge, y = Exposure)) +
+    geom_bar(stat = 'identity'),
+  
+  heights = c(2,1)
+)
+
+```
+
+The model with `log(LicAge)` looks like an improvement. These models are not nested and we are using 1 degree of freedom for each curve, so model comparison is straightforward - we would simply choose the model with lower residual deviance, or equivalently when model complexity is the same, the lowest AIC.
+
+```{r}
+AIC(lame_glm, better_glm)
+```
+
+Now we are running into the natural limitations of our GLM. We can model using the raw features or create simple functional transforms - log, square root, and so on are some common choices. Another option is to create a polynomial basis expansion of $x$ - an orthogonolized basis of ${x^1, x^2,...,x^k}$ - and test each of these polynomials in the model.  Actually this is a popular approach; it is an option built into some widely used modeling software and can be done in R with the `poly()` method. If you're already familiar with this then you are familiar with GAMs since it is what I would call a poor-man's GAM. Some of the shortcomings of this approach are:
+
+1. A polynomial basis is still a limited set of shapes for the basis functions
+1. Including multiple polynomials often produces wild behaviors in the tails
+1. Each basis function is either fully in or fully omitted from the model - that is, assuming we stick with the `glm()` method (we could move into regularization with lasso or ridge regressions)
+1. Terms are typically tested manually for inclusion starting from the lowest order and increasing
+1. Just my experience, but we often begin to over-fit the data once we go beyond an order of 2 or maybe 3
+
+Here is how a polynomial basis expansion can be implemented
+```{r, warning=FALSE}
+poly_glm <- glm(ClaimInd ~ poly(LicAge, degree = 3),
+                 offset = log(Exposure),
+                 family = poisson(link = "log"),
+                 data = freMPL6)
+
+dat_summ %>%
+    mutate(poly_fit = predict(poly_glm, ., type = "response") / Exposure) %>%
+    gather(key = "metric", value = "freq", obs_freq, poly_fit) %>%
+    ggplot(aes(x = LicAge, y = freq, color = metric)) +
+    geom_line() +
+    ggtitle("GLM w/ 3rd order Polynomial Basis Expansion vs Observed") +
+    theme(axis.title.x = element_blank(),
+          axis.ticks.x = element_blank(), 
+          axis.text.x = element_blank(),
+          legend.position = c(.15,.2) )
+```
+
+As you can see, the fitted curve shows a characteristic cubic shape which could become dangerous if this is the type of variable where some large outliers in $x$ are possible.
+
+Take a look at the model summary and make note of the terms in the model
+
+
+```{r}
+summary(poly_glm)
+```
+
+Our leading model so far seems to be the GLM with a log-transform. Is this the best we can do?
+
+# GAM w/ Thin Plate Splines
+
+Let us turn to 'proper' GAMs, specifically using thin plate spline bases. When estimating GAMs, you are really just fitting a GLM with some basis expansions of your covariates, similar to our example using `poly()` above. The differences between that approach and proper GAMs (with TPS) are:
+
+1. Basis expansions will be created for us starting from a much larger function space (about the same dimension as there are observations in the dataset, if I understand correctly), and then truncating it down to the $k$ most important functions in this space via eigen decomposition
+1. The basis functions will not have a simple closed form expression like $b(x) = x^3$, but rather a more complicated representation in terms of a radial basis kernel transformation applied to $x$. We don't deal with the math behind this.
+1. The coefficient estimates will be regularized or "shrunk" via inclusion of a complexity penalty in the optimization
+
+From an estimation perspective, the quantity being minimized to "fit" the GAM is (for a gaussian error)
+
+$$\min_{f}\sum_{i=1}^{N}[y_i-f(x_i)]^2 + \lambda J(f)$$
+
+We've seen pieces of this before - the first term is squared error loss. The $J(f)$ in the second term is a measure of "wiggliness" of fitted function $f$. Thinking about how one measures wiggliness, it is intuitive that we would want to consider second derivatives of $f$ evaluated all along $x$, squaring them so that concave and convex areas do not cancel each other out, and sum them all up. Well that is effectively how it is done:
+
+$$J(f) =\int f''(x)^2 dx$$
+
+$\lambda$ is the smoothing parameter which controls how much penalty enters the function being optimized. It is a hyperparameter, so it must be tuned/estimated for us - this is done either through GCV (default) or through (RE)ML which is recommended by the author since it is less prone to undersmoothing, though also a bit slower. Those familiar with penalized regressions such as the Lasso and Ridge estimators (as implemented in the `glmnet` package for example) will recognize $\lambda$ is also used there to denote the complexity parameter. Instead of $L_1$ or $L_2$ norms as measures of complexity (Lasso and Ridge, respectively), here we have the quantity $J(f)$ measuring wiggliness.
+
+## Default setting GAM
+
+A GAM is fit using `mgcv`'s `gam()` and `s()` methods as follows
+
+```{r}
+gam_tps_1 <- freMPL6 %>%
+  gam(ClaimInd ~ s(LicAge, bs = "tp"), #TPS basis
+      offset = log(Exposure),
+      family = poisson(link = "log"),
+      method = "REML",
+      data = .)
+```
+
+Let's see what the `summary()` tells us about our model
+
+```{r}
+summary(gam_tps_1)
+```
+
+We notice that we spend about 5 degrees of freedom estimating the smooth term `s(LicAge)`.
+ 
+Compare the GAM fit to the GLM with logged feature
+
+```{r, warning=FALSE}
+gridExtra::grid.arrange(
+  
+  dat_summ %>%
+    mutate(better_fit = predict(better_glm, ., type = "response") / Exposure,
+           gam_fit_1 = predict(gam_tps_1, ., type = "response")) %>%
+    gather(key = "metric", value = "freq", obs_freq, better_fit, gam_fit_1) %>%
+    ggplot(aes(x = LicAge, y = freq, color = metric)) +
+    geom_line() +
+    ggtitle("Fit vs Observed") +
+    theme(axis.title.x = element_blank(),
+          axis.ticks.x = element_blank(), 
+          axis.text.x = element_blank(),
+          legend.position = c(.15,.2) ),
+  
+  dat_summ %>%
+    ggplot(aes(x = LicAge, y = Exposure)) +
+    geom_bar(stat = 'identity'),
+  
+  heights = c(2,1)
+)
+
+```
+
+## Basis Dimension
+
+Recall a GAM models the response as a linear combination of some smooth functions $f(x)$, for each $x$ in the set of covariates $\{x_1...x_p\}$. 
+
+Here we only have one $x$, and the spline basis $f_1(x_1)$ is estimated as
+
+$$f_1(x_1) = \sum^{k}_{j=1}b_j(x_1)\beta_j$$
+
+$k$ represents the basis dimension for the smooth. What is the dimension of our selected spline basis? Well since we know we should be estimating 1 $\beta$ for each basis function, let's check
+
+```{r}
+coef(gam_tps_1)
+```
+
+So we have a spline basis of dimension 9, producing a smooth 
+
+$$f_{LicAge}(LicAge) = \sum^{9}_{j=1}b_j(LicAge)\beta_j$$
+
+The spline basis is itself a linear combination of estimated weights ($\beta_j$) each scaling a basis function $b(x)$. Add up all the $b_j(x_1)\beta_j$ and you get the smooth function $f_1(x_1)$.
+
+Let's plot the 9 basis functions $b_j(x_1)$ which we used for the basis expansion of `LicAge`
+
+```{r, warning=FALSE}
+dat_summ %>%
+  cbind(., predict(gam_tps_1, newdata = ., type = "lpmatrix") ) %>%  
+  as_tibble() %>%
+  gather(key = "b_j", value = "b_j_x", 7:15) %>%
+  ggplot(aes(x = LicAge, y = b_j_x, color = b_j)) +
+  geom_line(linetype = "dashed") +
+  scale_y_continuous(name = "b_j(x)") +
+  geom_line(data = . %>% mutate(gam_fit_1 = predict(gam_tps_1, ., type = "response")),
+            aes(LicAge, gam_fit_1),
+            color = "black")
+```
+
+Let's now confirm our understanding by getting predictions a few different ways, we should get the same result from each.
+
+```{r}
+cbind(
+# default output on linear predictor scale and apply inverse link function
+predict(gam_tps_1, newdata = tibble(LicAge = 1:10)) %>% as.vector() %>% exp(),
+
+# ask for output already on response scale
+predict(gam_tps_1, newdata = tibble(LicAge = 1:10), type = "response"),
+
+# calculate dot product of Intercept and spline basis for x with corresponding estimated weights, apply inverse link
+(predict(gam_tps_1, newdata = tibble(LicAge = 1:10), type = "lpmatrix") %*% coef(gam_tps_1)) %>%
+  as.vector() %>%
+  exp()
+)
+```
+
+How did we end up with 9 basis functions? By default this is set for us by the library and is also essentially arbitrary - for a univariate smooth like we have the argument `k` controls the basis dimension and is defaulted to a value of 10, producing a basis of dimension 9 (`k-1`). These are selected in order of the amount of variance explained in the radial basis transformation of $x$ mentioned earlier. This is a vector space, and of very high dimension, so for computational efficiency we want to select a small subset of the most important functions in that space.
+
+Since smooth functions are estimated with penalized regression (by default), `k` is really setting an upper limit to the degrees of freedom spent in the estimation. The d.f. upper limit $k$ = `k-1` since 1 d.f. is recovered due to an "identifiability constraint" - a constant basis function is removed from the basis expansion to maintain model identifiability since an intercept is already included in the model specification outside of the smooth term. In practice, we just want to check that the effective degrees of freedom of the smooth is not too close to the upper limit of `k-1`. If it is, we would increase `k` to select a few more basis functions from that big vector space and include them in the basis expansion of x, producing more wiggliness. This approach of creating a large vector space and eigen decomposing it to select a subset of important funtions is the computational innovation of Simon Wood and the `mgcv` package.
+
+
+## Effective Degrees of Freedom
+
+Let's look at the summary again to inspect how complex our model is.
+
+```{r}
+summary(gam_tps_1)
+```
+
+The value "edf" refers to the estimated or effective degrees of freedom and is a measure of complexity. In a normal MLE (generalized) linear regression, 1 parameter estimate burns 1 d.f., but in a penalized regression context the complexity penalty has the effect of "shrinking" parameters out of the model. These shrunken estimates do not use a full degree of freedom because they do not fully rely on the data - they are a compromise between the data and the penalty being imposed on complexity (similar to a prior in the bayesian framework). This is the case with our smoother - so despite have a basis dimension of 9, it is more like we are estimating 5 full parameters from the data for our smooth term with shrinkage.
+
+Let's look at where we are spending these degrees of freedom
+
+```{r}
+gam_tps_1$edf
+gam_tps_1$edf %>% sum
+```
+
+Because the reported edf are approximate, terms may be slightly below 0 or above 1. We can interpret this as indicating the corresponding basis function was shrunken nearly out of the smooth term, or not shrunken at all, respectively. Here we have one basis function shrunken completely 
+
+Our `edf` sum balances with what is reported in the model summary (5.277, plus 1 for the Intercept). But we should keep in mind that we are also estimating a smoothing parameter which controls the amount of penalty applied. If we want edf's that accounts for this parameter as well, then you must look at `edf2`.
+
+```{r}
+gam_tps_1$edf2
+gam_tps_1$edf2 %>% sum()
+```
+
+## Why 'Thin Plate'?
+
+So far we have only considered the univariate case. The real power of GAMs + thin plate spline smooths comes through when we move into smooths of 2 (or more) covariates and the plots become much cooler.
+
+```{r}
+gam_tps_2X <- freMPL6 %>%
+  gam(ClaimInd ~ s(LicAge, DrivAge, bs = "tp", k = 15), # a smooth surface on (LicAge, DrivAge)
+      offset = log(Exposure),
+      family = poisson(link = "log"),
+      method = "REML",
+      data = .)
+
+## plotting with persp()
+steps <- 30
+LicAge <- with(freMPL6, seq(min(LicAge), max(LicAge), length = steps))
+DrivAge <- with(freMPL6, seq(min(DrivAge), max(DrivAge), length = steps))
+newdat <- expand.grid(LicAge = LicAge,
+                      DrivAge = DrivAge)
+
+fit_2X <- matrix(predict(gam_tps_2X, newdat, type = "response"), steps, steps)
+
+persp(LicAge, DrivAge, fit_2X, theta = 120, col = "yellow", ticktype = "detailed")
+```
+
+Here we have a "thin plate" spline prediction surface estimated jointly on `DrivAge * LicAge`. The model specification is equivalent to including an interaction between two covariates in the GLM context. We can see that, generally speaking, risk decreases with `DrivAge` and with `LicAge`. But the story is a little more nuanced than either a tilted plane (2 linear terms) or a "saddle" (2 linear terms plus an interaction between them), with a ridge and some depressions appearing on the surface, and some tugging upward of the corners of the surface.
+
+We can increase or decrease the tension of the thin plate, leading to more or less pressure required to flex it. This is the physical interpretation of the penalty-controlling parameter $\lambda$ we saw earlier. Normally the optimal lambda is estimated for us; let's manually override that and make it fairly large to induce more penalty on wiggliness.
+
+```{r}
+gam_tps_2X <- freMPL6 %>%
+  gam(ClaimInd ~ s(LicAge, DrivAge, bs = "tp", k = 15, sp = 100), #large lambda = more tension
+      offset = log(Exposure),
+      family = poisson(link = "log"),
+      method = "REML",
+      data = .)
+
+fit_2X <- matrix(predict(gam_tps_2X, newdat, type = "response"), steps, steps)
+
+persp(LicAge, DrivAge, fit_2X, theta = 120, col = "yellow", ticktype = "detailed")
+```
+
+Here we can see that the "pressure" of the signal in our data is only strong enough to bend the plate at the corner where both `DrivAge` and `LicAge` are low, and elsewhere we have essentially a flat plate, i.e. a plane. We can infer from this that we did not shrink our the linear parts of the smooths, only the wiggly bits. That is the default behavior - shrinkage is applied in the "range space" containing the non-linear basis functions, not to the "null space" with the linear components of each term. But there are a couple ways to also apply shrinkage here if we like.
+
+## Shrinkage on the null space
+
+There are two ways to induce shrinkage on the linear terms - shrinkage smoothers and the double penalty approach.
+
+The shinkrage smoother approach is used by setting `bs="ts"` in a call to `s()`. We can do this for some or all terms - one advantage of this approach. This approach assumes *a priori* that non-linear bits should be shrunk more than the linear terms.
+
+```{r}
+gam_tps_shrink <- freMPL6 %>%
+  gam(ClaimInd ~ s(LicAge, DrivAge, bs = "ts", k = 15), #shrinkage version of TPS basis
+      offset = log(Exposure),
+      family = poisson(link = "log"),
+      method = "REML",
+      data = .)
+
+fit_shrink <- matrix(predict(gam_tps_shrink, newdat, type = "response"), steps, steps)
+persp(LicAge, DrivAge, fit_shrink, theta = 120, col = "yellow", ticktype = "detailed")
+```
+
+The double penalty approach is used by setting `select=TRUE` in the `gam()` call. The disadvantages of this approach are that it is either on or off for all smooth terms, and now instead of one smoothering parameter we must estimate two - one each for the null space (linear terms) and the range space (non-linear terms). The advantages are that it treats both linear and non-linear terms the same from the point of view of shrinkage, and that this tends to produce more robust estimates according to the package author.
+
+```{r}
+gam_tps_dblpen <- freMPL6 %>%
+  gam(ClaimInd ~ s(LicAge, DrivAge, bs = "tp", k = 15),
+      offset = log(Exposure),
+      family = poisson(link = "log"),
+      method = "REML",
+      select = TRUE, ## an extra penalty placed on linear terms of smooths
+      data = .)
+
+fit_dblpen <- matrix(predict(gam_tps_dblpen, newdat, type = "response"), steps, steps)
+persp(LicAge, DrivAge, fit_dblpen, theta = 120, col = "yellow", ticktype = "detailed")
+```
+
+The double penalty approach produces more regularlization on the linear components than the shrinkage splines. These abilities become powerful when you have more than a handful of features and want to perform automatic feature selection, as in a Lasso regression.
+
+# Business Constraints
+
+So far we've seen how we can improve our estimator with more flexible shapes to capture non-linear patterns and with regularization to reduce estimator variance by controlling over-fitting of the data. So let's turn back to the motivation of better reflecting business constraints.
+
+Looking at both our univariate and bivariate models, we see that better data fitting can mean curves/surfaces that are wavy. This can be totally fine depending on the application - for example if we are modeling the result of some operational process where customers and regulators are not "seeing" model outputs directly. On the other hand, this may be undesireably in a pricing application from the customer experience perspective - in particular when we have rating factors which increment over time (driver age, license age) then the result may be rates that swing up and down with each policy renewal/year.
+
+Can we achieve more flexible curves while also maintaining monotonicity as we had with our log-transform GLM?
+
+## Shape Constraints with scam
+
+```{r}
+library(scam)
+```
+
+To do this we need to turn to the `scam` package. `scam` is very similar to `mgcv` in that it allows us to fit GAMs with a variety of spline bases, but `scam` is special because it allows us to also place shape constraints on these models ("scam" stands for shape constrained additive models).
+
+Let's take a look at a model for `LicAge` where we impose a monotonic decreasing condition on the spline basis
+
+```{r, warning=FALSE}
+scam_mono_d <- freMPL6 %>%
+  scam(ClaimInd ~ s(LicAge, bs = "mpd"),
+       offset = log(Exposure),
+       family = poisson(link = "log"),
+       data = .)
+
+dat_summ %>%
+  mutate(gam_fit_1 = predict(gam_tps_1, ., type = "response"),
+         scam_fit_1 = predict(scam_mono_d, ., type = "response")) %>%
+  gather(key = "metric", value = "freq", obs_freq, gam_fit_1, scam_fit_1) %>%
+  ggplot(aes(x = LicAge, y = freq, color = metric)) +
+  geom_line()
+```
+
+We've expressed our desire for a non-wavy curve as a shape constraint within the spline basis itself, and estimated the optimal curve given the data under that condition. This is also possible in the bivariate case by using the argument `bs="tedmd"`, though I will not do so here because it generates warnings due to not being an appropriate model for this data.
+
+Now let's consider the predictive performance of our scam model as compared to our first GAM with no shape constraint.
+
+```{r}
+AIC(scam_mono_d, gam_tps_1)
+```
+
+We end up with a less complex model, with the desired shape, and which performs comparably to the original based on the AIC (an estimate of out-of-sample prediction performance). I also think we produce a better result for our business partners which incorporates some of the constraints they have on what can be implemented.
+
+# Conclusion
+
+
+```{r, inlude = F}
+knitr::knit_exit()
+```
+
+
+```{r}
+mod4 <- freMPL6 %>%
+  scam(ClaimInd ~ s(LicAge, bs = "mdcx"),
+       offset = log(Exposure),
+       family = poisson(link = "log"),
+       data = .)
+```
+
+```{r, warning=F, eval = F}
+dat_summ %>%
+  mutate(fit_mod1 = predict(mod1, ., type = "response") / Exposure,
+         fit_mod2 = predict(mod2, ., type = "response"),
+         fit_mod3 = predict(mod3, ., type = "response"),
+         fit_mod4 = predict(mod4, ., type = "response")  ) %>%
+  gather(key = "model", value = "value", freq, fit_mod1, fit_mod2, fit_mod3, fit_mod4) %>%
+  ggplot(aes(x = LicAge, y = value, color = model)) +
+  geom_line() +
+  ggtitle("Regression Comparison", "Linear, TP Splines, and Monotonic TP Splines")
+```
+
+
+
+
+
+
+
+## Other junk
+
+The default smooth matches the data much better, and in a statistical sense it may be an ideal regression fit. But we notice that it is "wiggly," going down up and down as `LicAge` increases, capturing the smooth pattern of the experience. From a business perspective we might prefer something monotonic-decreasing.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Some other options
+
+It is possible to fix the degrees of freedom used in the regression using the `fx` argument. If we set this to `TRUE`, then instead of setting an upper limit to the d.f., we will not use a penalty on complexity and instead of an upper limit `k` will specify $k-1$ d.f. be used in the smoother estimation.
+
+Possible to limit the degrees of freedom 'spent' on estimating spline basis. By setting k=3, we spend 1 on the null space (linear term) and 1 on the smooth term (eigenbasis). Not a penalized regression spline then, but a fixed d.f. regression spline
+```{r}
+gam_tps_2 <- freMPL6 %>%
+  gam(ClaimInd ~ s(LicAge, bs = "tp", fx = T, k = 3),
+      offset = log(Exposure),
+      family = poisson(link = "log"),
+      method = "REML",
+      data = .)
+```
+
+```{r}
+dat_summ %>%
+  cbind(., predict(gam_tps_2, newdata = ., type = "lpmatrix") ) %>%  
+  as_tibble() %>%
+  gather(key = "b_j", value = "b_j_x", 7:8) %>%
+  ggplot(aes(x = LicAge, y = b_j_x, color = b_j)) +
+  geom_line(linetype = "dashed") +
+  scale_y_continuous(name = "b_j(x)") +
+  geom_line(data = . %>% mutate(gam_fit_2 = predict(gam_tps_2, ., type = "response")),
+            aes(LicAge, gam_fit_2),
+            color = "black")
+```
+
+Here with just 2 basis functions in our smooth we can see more clearly that the fitted curve is a linear combination of individual basis functions.  We can also see that we want $k$ large enough to provide a sufficiently large functional subspace containing all the basis functions of different shapes which be important in our model.
+
+
+```{r}
+  dat_summ %>%
+    mutate(fx_small_k = predict(gam_tps_2, ., type = "response")) %>%
+    gather(key = "metric", value = "freq", obs_freq, fx_small_k) %>%
+    ggplot(aes(x = LicAge, y = freq, color = metric)) +
+    geom_line() +
+    ggtitle("Fit vs Observed") +
+    theme(axis.title.x = element_blank(),
+          axis.ticks.x = element_blank(), 
+          axis.text.x = element_blank(),
+          legend.position = c(.15,.2) )
+```
+
+
+```{r}
+gam_tps_2 <- freMPL6 %>%
+  gam(ClaimInd ~ s(LicAge, bs = "tp", fx = T, k=5),
+      offset = log(Exposure),
+      family = poisson(link = "log"),
+      method = "REML",
+      data = .)
+
+dat_summ %>%
+    mutate(gam_fit_1 = predict(gam_tps_1, ., type = "response"),
+           gam_fit_2 = predict(gam_tps_2, ., type = "response")) %>%
+    gather(key = "metric", value = "freq", obs_freq, gam_fit_1, gam_fit_2) %>%
+    ggplot(aes(x = LicAge, y = freq, color = metric)) +
+    geom_line() +
+    ggtitle("Fit vs Observed") +
+    theme(axis.title.x = element_blank(),
+          axis.ticks.x = element_blank(), 
+          axis.text.x = element_blank(),
+          legend.position = c(.15,.2) )
+```
+
+```{r, eval = F}
+m4 <- freMPL1 %>%
+  mutate(LicAge = round(LicAge/12, 0)) %>%
+  brm(bf(ClaimInd ~ s(LicAge, bs = "tp") + offset(log(Exposure))),
+      family = poisson(link = "log"),
+      data = ., 
+      cores = 4, seed = 42,
+      iter = 4000, warmup = 1000, thin = 10, refresh = 0,
+      control = list(adapt_delta = 0.99))
+```
+
+
+```{r}
+library(scam)
+```
+
+
+```{r}
+test <- freMPL6 %>%
+  gam(ClaimInd ~ s(LicAge, bs = "ad", fx = T, k = 4, m = 1, xt = list(bs = "tp")),
+      offset = log(Exposure),
+      family = poisson(link = "log"),
+      method = "REML",
+      data = .)
+
+gridExtra::grid.arrange(
+  
+  dat_summ %>%
+    mutate(better_fit = predict(better_glm, ., type = "response") / Exposure,
+           gam_fit_tp = predict(test, ., type = "response")) %>%
+    gather(key = "metric", value = "freq", obs_freq, better_fit, gam_fit_tp) %>%
+    ggplot(aes(x = LicAge, y = freq, color = metric)) +
+    geom_line() +
+    ggtitle("Fit vs Observed") +
+    theme(axis.title.x = element_blank(),
+          axis.ticks.x = element_blank(), 
+          axis.text.x = element_blank(),
+          legend.position = c(.15,.2) ),
+  
+  dat_summ %>%
+    ggplot(aes(x = LicAge, y = Exposure)) +
+    geom_bar(stat = 'identity'),
+  
+  heights = c(2,1)
+)
+```

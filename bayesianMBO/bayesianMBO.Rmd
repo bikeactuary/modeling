@@ -1,0 +1,343 @@
+---
+title: 
+author: 
+output:
+  html_document:
+    fig_caption: true
+    highlight: tango
+    self_contained: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(cache.path = "cache/")
+options(na.action = "na.pass")
+```
+
+Model-based optimization (MBO) - aka Bayesian optimization - is a fast method for tuning the hyperparameters of a machine learning algorithm. Compared to the brute-force approach of testing a large grid of potential hyperparameter combinations, MBO finds a global optimum with fewer evaluations and less manual effort. And for the those who love statistics - it is a probabilistic approach which utilizes Gaussian Process (GP) smoothing ("kriging") to create new proposals by interpolation between the results of initial testing points.
+<!-- wp:more -->
+<!--more-->
+<!-- /wp:more -->
+
+## Background
+
+I remember when I started using machine learning methods how time consuming and - even worse - *manual* it could be to perform a hyperparameter search. The whole benefit of machine learning is that the algorithm should optimize the model-learning task for us, right? The problem of course becomes one of compute resources. Suppose we only have simple brute-force grid search at our disposal. With just one hyperparameter to tune, this approach is practical - we may only need to test 5 candidate values. But as the number of hyperparameters ("dimension") increments, the number of candidate hyperparameterizations increases according to a power function. Suppose instead we have 5 hyperparameters to tune - again using just points five points for each dimension would now result in $5^5 = 3,125$ model evaluations to test all the possible combinations.  Sometimes 5 points is realistic - for example, with some discrete parameters like the maximum tree depth in a random forest. But for something continuous it is usually not, so I am really understating how quickly a grid will blow up, making brute-force approaches impractical.
+
+Pretty quickly one goes from the brute-force appraoch to more involved strategies for grid search. That could mean starting with coarse grids and zooming into specific promising areas with higher resolution grids in subsequent searches; it could mean iterating between two or three different subsets of the hyperparameters which tend to "move together" - like the learning rate and number of rounds in a GBM. These strategies become highly manual, and frankly it becomes a real effort to keep track of the different runs and results. We don't want to have to think this much and risk making a mistake when tuning algorithms!
+
+## Model-Based Optimization
+
+MBO differs from grid search in a couple of ways. First, we search the entire continuous range of a hyperparameter, not a discretized set of points within that range. Second, and more importantly, it is a probabilistic method which uses information from early evaluations to improve the selection of subsequent tests that will be run. In this regard it is similar to the low-res/high-res search strategy, but with automation. As good Bayesians, we like methods that incorporate prior information to improve later decisions, a principle which is intuitive and appealing to our naturally <a href="https://www.cell.com/trends/cognitive-sciences/pdf/S1364-6613(16)30156-5.pdf" class="uri">bayesian brains</a>.
+
+As mentioned above, the method for selecting later test points based on the information from the early tests is gaussian process smoothing or *kriging*. One popular application for Gaussian processes is in geo-spatial smoothing and regression. We are basically doing the same thing here, except instead of geographic (lat-long) space, our space is defined by the ranges of a set of hyperparameters. We refer to this as the hyperparameter space, and MBO is going to help us search it for the point which provides the optimal result of a machine learning algorithm.
+
+```{r gp, fig.cap = "A gaussian process estimator for the mean and envelope of a random walk\nSource: Wikimedia Commons, h/t Jacopo Bertolotti @j_bertolotti"}
+knitr::include_graphics('https://upload.wikimedia.org/wikipedia/commons/d/da/Gaussianprocess.gif')
+```
+
+
+So let's take a look at how Bayes helps us tune machine learning algorithms with some code.
+
+## Demonstration
+
+### Environment
+The main package we need is `mlrMBO`, which provides the `mbo()` method for optimizing an arbitrary function sequentially. We also need several others for various helpers - `smoof` to define the objective function which will be optimized; `ParamHelpers` to define a parameter space in which we will perform the bayesian search for a global optimum; and `DiceKriging` provides the gaussian process interpolation (in the machine learning world it is called "kriging") capability.
+
+We will use the `xgboost` flavor of GBM as our machine learning methodology to be tuned, but you could adapt what I'm demonstrating here to any algorithm with multiple hyperparameters (or even a single one, if run-time for a single iteration was so high as to warrant it). `mlrMBO` is completely agnostic to your choice of methodology, but the flip side is this means a bit of coding setup required on the data scientist's part (good thing we like coding, and don't like manual work).
+
+```{r, message=FALSE}
+library(CASdatasets)
+library(dplyr)
+library(tibble)
+library(magrittr)
+library(ggplot2)
+library(scatterplot3d)
+library(kableExtra)
+library(tidyr)
+library(mlrMBO)
+library(ParamHelpers)
+library(DiceKriging)
+library(smoof)
+library(xgboost)
+```
+
+### Data
+
+I'll use my go-to insurance ratemaking dataset for demonstration purposes - the french motor dataset from `CASdatasets`.
+
+```{r}
+data("freMPL1")
+data("freMPL2")
+data("freMPL3")
+fre_df <- rbind(freMPL1, freMPL2, freMPL3 %>% select(-DeducType))
+rm(freMPL1, freMPL2, freMPL3)
+```
+
+Let's take a look at our target variable `ClaimAmount`
+```{r}
+gridExtra::grid.arrange(
+  fre_df %>%
+    filter(ClaimAmount > 0) %>%
+    ggplot(aes(x = ClaimAmount)) +
+    geom_density() +
+    ggtitle("Observed Loss Distribution"),
+  
+  fre_df %>%
+    filter(ClaimAmount > 0, ClaimAmount < 1.5e4) %>%
+    ggplot(aes(x = ClaimAmount)) +
+    geom_density() +
+    ggtitle("Observed Severity Distribution"),
+  nrow = 1
+)
+```
+
+
+We have something like a compound distribution - a probability mass at 0, and some long-tailed distribution of loss dollars for observations with incurred claims. But let's also look beyond the smoothed graphical view.
+
+```{r}
+min(fre_df$ClaimAmount)
+sum(fre_df$ClaimAmount < 0)
+```
+
+We also appear to have some claims < 0 - perhaps recoveries (vehicle salvage) exceeded payments. For the sake of focusing on the MBO, we will adjust these records by flooring values at 0. I'll also convert some factor columns to numeric types which make more sense for modeling.
+
+```{r}
+fre_df %<>%
+  mutate(ClaimAmount = case_when(ClaimAmount < 0 ~ 0, TRUE ~ ClaimAmount)) %>%
+  mutate(VehMaxSpeed_num = sub(".*-", "", VehMaxSpeed) %>% substr(., 1, 3)%>% as.numeric,
+         VehAge_num = sub("*.-", "", VehAge) %>% sub('\\+', '', .) %>% as.numeric,
+         VehPrice_num = as.integer(VehPrice)) %>% # The factor levels appear to be ordered so I will use this
+  group_by(SocioCateg) %>% # high cardinality, will encode as a proportion of total
+  mutate(SocioCateg_prop =  (sum(n()) / 4) / nrow(.) * 1e5) %>% 
+  ungroup()
+
+## matrices, no intercept needed and don't forget to exclude post-dictors
+fre_mat <- model.matrix(ClaimAmount ~ . -1 -ClaimInd -Exposure -RecordBeg 
+                        -RecordEnd - VehMaxSpeed -VehPrice -VehAge -SocioCateg,
+                        data = fre_df)
+## xgb.DMatrix, faster sparse matrix
+fre_dm <- xgb.DMatrix(data = fre_mat, 
+                      label = fre_df$ClaimAmount, 
+                      base_margin = log(fre_df$Exposure)) ## base-margin == offset
+                                                          ## we use log earned exposure because the xgboost Tweedie
+                                                          ## implementation includes a log-link for the variance power
+```
+
+### Objective function for optimizing
+
+To avoid confusion, there are two objective functions we could refer to. Statistically, our objective function aka our loss funciton is negative log-likelihood for am assumed tweeedie-distributed random variable. The `xgboost` algorithm will minimize this objective (equivalent to maximizing likelihood) for a given set of hyper-parameters for each run. Our other objective function is the R function defined below - it calls `xgb.cv()`, runs the learning procedure with cross-validation, stops when the out-of-fold likelihood does not improve, and returns the best objective evaluation (log-loss metric) based on the out-of-fold samples.
+
+Note that the function below also includes a defined hyperparameter space - a set of tuning parameters with possible ranges for values. There are 6 traditional tuning parameters for xgboost, but I've also added the tweedie variance "power" parameter as a seventh. This parameter would take a value between (1,2) for a poisson-gamma compound distribution, but I first narrowed this down to a smaller range based on a quick profile of the loss distribution (using `tweedie::tweedie.profile()`, omitted here).
+
+```{r}
+# objective function: we want to minimize the neg log-likelihood by tuning hyperparameters
+obj.fun <- makeSingleObjectiveFunction(
+  name = "xgb_cv_bayes",
+  fn =   function(x){
+    set.seed(42)
+    cv <- xgb.cv(params = list(
+      booster          = "gbtree",
+      eta              = x["eta"],
+      max_depth        = x["max_depth"],
+      min_child_weight = x["min_child_weight"],
+      gamma            = x["gamma"],
+      subsample        = x["subsample"],
+      colsample_bytree = x["colsample_bytree"],
+      max_delta_step   = x["max_delta_step"],
+      tweedie_variance_power = x["tweedie_variance_power"],
+      objective        = 'reg:tweedie', 
+      eval_metric     = paste0("tweedie-nloglik@", x["tweedie_variance_power"])),
+      data = dm, ## must set in global.Env()
+      nround = 7000, ## Set this large and use early stopping
+      nthread = 26, ## Adjust based on your machine
+      nfold =  5,
+      prediction = FALSE,
+      showsd = TRUE,
+      early_stopping_rounds = 25, ## If evaluation metric does not improve on out-of-fold sample for 25 rounds, stop
+      verbose = 1,
+      print_every_n = 500)
+    
+    cv$evaluation_log %>% pull(4) %>% min  ## column 4 is the eval metric here, tweedie negative log-likelihood
+  },
+  par.set = makeParamSet(
+    makeNumericParam("eta",                    lower = 0.005, upper = 0.01),
+    makeNumericParam("gamma",                  lower = 1,     upper = 5),
+    makeIntegerParam("max_depth",              lower= 2,      upper = 10),
+    makeIntegerParam("min_child_weight",       lower= 300,    upper = 2000),
+    makeNumericParam("subsample",              lower = 0.20,  upper = .8),
+    makeNumericParam("colsample_bytree",       lower = 0.20,  upper = .8),
+    makeNumericParam("max_delta_step",         lower = 0,     upper = 5),
+    makeNumericParam("tweedie_variance_power", lower = 1.75,   upper = 1.85)
+  ),
+  minimize = TRUE ## negative log likelihood
+)
+```
+
+### A function which runs the optimization
+
+The core piece here is the call to `mbo()`. This accepts an initial design - i.e. a set of locations which are chosen to be "space-filling" within our hyperparameter space (we do not want randomn generation which could result in areas of the space having no points nearby) - created using `ParamHelpers::generateDesign()`. The `makeMBOControl()` method is used to create an object which will simply tell `mbo()` how many optimization steps to run after the intial design is tested - these are the runs which are determined probabilistically through gaussian process smoothing, aka kriging. Finally, I create a plot of the optimization path and return the objects in a list for later use.
+
+The covariance structure used in the gaussian process is what makes GPs "bayesian" - they define the prior information as a function of nearby observed values and the covariance structure which defines the level of smoothness expected. We use a [Matern 3/2 kernel](https://stats.stackexchange.com/questions/322523/what-is-the-rationale-of-the-mat%C3%A9rn-covariance-function) - this is a moderately smooth covariance often used in geospatial applications and which is well-suited to our own spatial task. It is equivalent to the product of an exponential and a polynomial of degree 1. This is the `mbo` default for a numerical hyperparameter space - if your hyperparameters include some which are non-numeric (for example, you may have a hyperparameter for "method" and a set of methods to choose from), then instead of kriging a random forest is used to estimate the value of the objective function between points, and from this the optimizing proposals are chosen. This would no longer be a strictly "bayesian" approach, though I think it would still be bayesian in spirit.
+
+The gaussian process models the result of our objective function's output as a function of hyperparameter values, using the initial design samples. For this reason, it is referred to (especially in the deep learning community) as a [surrogate model](https://en.wikipedia.org/wiki/Surrogate_model) - it serves as a cheap surrogate for running another evaluation of our objective function at some new point. For any point not evaluated directly, the estimated/interpolated surface provides an expectation. This benefits us because points that are likely to perform poorly (based on the surrogate model estimate) will be discarded, and we will only move on with directly evaluating points in promising regions of the hyperparameter space. 
+
+Creating a wrapper function is optional - but to perform multiple runs in an analysis, most of the code here would need to be repeated. To be concise, I write it once so it can be called for subsequent runs (perhaps on other datasets, or if you get back a boundary solution you did not anticipate).
+
+```{r}
+do_bayes <- function(n_design = NULL, opt_steps = NULL, of = obj.fun, seed = 42) {
+  set.seed(seed)
+  
+  des <- generateDesign(n=n_design,
+                        par.set = getParamSet(of),
+                        fun = lhs::randomLHS)
+  
+  control <- makeMBOControl() %>%
+    setMBOControlTermination(., iters = opt_steps)
+  
+  ## kriging with a matern(3,2) covariance function is the default surrogate model for numerical domains
+  ## but if you wanted to override this you could modify the makeLearner() call below to define your own
+  ## GP surrogate model with more or lesss smoothness, or use an entirely different method
+  run <- mbo(fun = of,
+             design = des,
+             learner = makeLearner("regr.km", predict.type = "se", covtype = "matern3_2", control = list(trace = FALSE)),
+             control = control, 
+             show.info = TRUE)
+  
+  opt_plot <- run$opt.path$env$path %>%
+    mutate(Round = row_number()) %>%
+    mutate(type = case_when(Round <= n_design ~ "Design",
+                            TRUE ~ "mlrMBO optimization")) %>%
+    ggplot(aes(x= Round, y= y, color= type)) + 
+    geom_point() +
+    labs(title = "mlrMBO optimization") +
+    ylab("-log(likelihood)")
+  
+  print(run$x)
+  
+  return(list(run = run, plot = opt_plot))
+}
+```
+
+### Number of evaluations
+
+Normally for this problem I would perform more evaluations, in both the intial and optimizing phases. Something around 5 -7 times the number of parameters being tuned for the initial design and half of that for the number of optimization steps could be a rule of thumb. You need some points in the space to have something to interpolate between!
+
+Here's my intial design of 15 points.
+
+```{r}
+des <- generateDesign(n=15,
+                      par.set = getParamSet(obj.fun),
+                      fun = lhs::randomLHS)
+DT::datatable(des, options = list(scrollX = TRUE,
+                                  pageLength = 15,
+                                  dom = 'tir')) %>%
+  DT::formatRound(c(1:2, 5:8))
+```
+
+And here is a view to see how well those points fill out 3 of the 7 dimensions
+
+```{r}
+scatterplot3d(des$eta, des$gamma, des$min_child_weight,
+              type = "h", color = "blue", pch = 16)
+```
+
+We can see large areas with no nearby points - if the global optimum lies here, we *may* still end up with proposals in this area that lead us to find it, but it sure would be helpful to gather some info there and guarantee it. Here's a better design with 6 points per hyperparameter.
+
+```{r}
+des <- generateDesign(n=42,
+                      par.set = getParamSet(obj.fun),
+                      fun = lhs::randomLHS)
+scatterplot3d(des$eta, des$gamma, des$min_child_weight,
+              type = "h", color = "blue", pch = 16)
+```
+
+This would take longer to run, but we will rely less heavily on interpolation over long distances during the optimizing phase because we have more information observed through experiments. Choosing your design is about the trade-off between desired accuracy and computational expense. So use as many points in the initial design as you can afford time for (aiming for at least 5-7 per parameter), and maybe half as many for the number of subsequent optimization steps.
+
+```{r, include=FALSE}
+rm(des)
+```
+
+### Do Bayes!
+
+Now that we are all set up, let's run the procedure using our `do_bayes()` function above and evaluate the result. As discussed above, I recommend sizing your random design and optimization steps according to the size of your hyperparameter space, using 5-7 points per hyperparameter as a rule of thumb. You can also figure out roughly how much time a single evaluation take (which will depend on the hyperparameter values, so this should be an estimate of the mean time), as well as how much time you can budget, and then choose the values that work for you. Here I use 25 total runs - 15 initial evaluations, and 10 optimization steps.
+
+(Note: The verbose output for each evaluation is shown below for your interest)
+```{r do_bayes, cache=T}
+dm <- fre_dm
+runs <- do_bayes(n_design = 15, of = obj.fun, opt_steps = 10, seed = 42)
+```
+
+### Diagnostics and evaluating result
+
+Results in hand, we want to check some diagnostics starting with the objective function evaluation for all of the runs.
+
+```{r, message=FALSE}
+runs$plot
+```
+
+The plot above (see our `do_bayes()` function for how we extracted this info) shows the best test evaluation result for each run - the initial design is colored red and the optimization runs are in blue. The hyperparameter values which produced those evaluations were the ones chosen through kriging. We can see from this that none of the random evaluations gave a top result, but together they did provide solid information on *where* in the hyperparameter space we should focus our search in order to optimize the algorithm. Every subsequent proposal was better than all of the random ones.
+
+The "default" viz below comes from the `plot()` S3 class method for `MBOSingleObjResult` and shows a few useful things, although the formatting could be improved. Most importantly, the top left plot shows the "scaled" values for each set of hyperparameters, for each run. Use this to confirm your recommended solution does not include any hyperparameter at the boundary of the values tested - if it does, then expand the range of that parameter in your objective function and re-run. In my example below, you can see that the optimal solution (the green line) includes a value for `max_depth` at the maximum of 10, and a `min_child_weight` at or near the minimum (300) of the range I had allowed.  Unless I were intentionally using these bounds to limit model complexity and improve generalization, I should try expanding the ranges of these hyperparameters and running again.
+
+```{r, fig.width=10,fig.height=11, message=FALSE}
+class(runs$run) %>% print
+plot(runs$run)
+```
+
+If you print the result object you can confirm the recommended solution included these boundary values:
+
+```{r}
+print(runs$run)
+```
+
+### Using the result
+
+Assuming we are happy with the result, we should then have what we need to proceed with model training. *However*, since `xgb.cv()` now uses early stopping and `nrounds` is not a tuning parameter, we did not capture this needed information in our MBO result. So we need to run one more evaluation the old-fashioned way, calling `xgb.cv()` directly using the best hyperparameters we found.
+
+```{r}
+best.params <- runs$run$x
+print(best.params)
+```
+
+We add the model parameters which were fixed during optimization to this list:
+```{r}
+best.params$booster <- "gbtree"
+best.params$objective <- "reg:tweedie"
+```
+
+Now we cross-validate the number of rounds to use, fixing our best hyperparameters:
+```{r xgb_cv, cache=TRUE}
+optimal.cv <- xgb.cv(params = best.params,
+                     data = fre_dm,
+                     nrounds = 6000,
+                     nthread = 26,
+                     nfold = 5,
+                     prediction = FALSE,
+                     showsd = TRUE,
+                     early_stopping_rounds = 25,
+                     verbose = 1,
+                     print_every_n = 500)
+```
+
+Obtain the best number of rounds...
+```{r}
+best.params$nrounds <- optimal.cv$best_ntreelimit
+best.params[[11]] %>% print
+```
+
+...and finally, train the final learner:
+```{r}
+final.model <- xgboost(params = best.params[-11], ## do not include nrounds here
+                       data = fre_dm,
+                       nrounds = best.params$nrounds,
+                       verbose = 1,
+                       print_every_n = 500)
+```
+
+```{r}
+xgb.importance(model = final.model) %>% xgb.plot.importance()
+```
+
+## Conclusion
+
+Bayesian optimization is a smart approach for tuning more complex learning algorithms with many hyperparameters when compute resources are slowing down the analysis. It is commonly used in deep learning, but can also be useful to when working with machine learning algorithms like GBMs (shown here), random forests, support vector machines - really anything that is going to take you too much time to run a naive grid search. Even if you are working with a relatively simple algorithm - say a lasso regression, which involves a single hyperparameter $\lambda$ to control the shrinkage/penalty - you may have just a small amount of compute available to you. If so, then it could still make sense to use MBO and cut down the number of evaluations needed to find the optimum.

@@ -7,6 +7,9 @@ output:
 ---
 
 People who do statistical modeling for insurance applications usually know their way around a GLM pretty well. In pricing applications, GLMs can produce a reasonable model to serve as the basis of a rating plan, but in my experience they are usually followed by a round of "selections" - a process to incorporate business considerations and adjust the "indicated" rate relativities to arrive at those which will be implemented (and filed with regulators, if required). Selections can be driven by various constraints and considerations external to the data such as:
+<!-- wp:more -->
+<!--more-->
+<!-- /wp:more -->
 
 - What is in the market currently?
 - What levels of rate disruption to the existing book are acceptable?
@@ -17,7 +20,7 @@ People who do statistical modeling for insurance applications usually know their
     - Deploying models as containerized prediction APIs would eliminate such a question... but instead the prediction formulas are usually written in a stored procedure with SQL tables to hold parameter values
 - Are the proposed rating factors "intuitive", or is there a believable causal relationship to the predicted losses?
 
-Many or all of these questions will always need consideration post-modeling since they are not driven by shortcomings in the modeling approach or data quality.  Often other questions also motivate adjustments to the modeling, such as :
+Many or all of these questions will always need consideration post-modeling since they are not driven by shortcomings in the modeling approach or data quality.  Often other questions also motivate adjustments to the modeling, such as:
 
 - Will the proposed factors impact the customer experience negatively?
     - For example, will there be "reversals" such that rates increase, then decrease, then increase again as a policy renews?
@@ -114,7 +117,7 @@ Fit a model to the raw feature(s)
 ```{r}
 lame_glm <- glm(ClaimInd ~ LicAge,
                 offset = log(Exposure),
-                family = poisson(link = "log"), ## skip tests of poisson assumption, save for a future blog psot
+                family = poisson(link = "log"), ## skip tests of poisson assumption, save for a future blog post
                 data = freMPL6)
 ```
 
@@ -391,7 +394,7 @@ Let's look at the summary again to inspect how complex our model is.
 summary(gam_tps_1)
 ```
 
-The value "edf" refers to the estimated or effective degrees of freedom and is a measure of complexity. In a normal MLE (generalized) linear regression, 1 parameter estimate burns 1 d.f., but in a penalized regression context the complexity penalty has the effect of "shrinking" parameters out of the model. These shrunken estimates do not use a full degree of freedom because they do not fully rely on the data - they are a compromise between the data and the penalty being imposed on complexity (similar to a prior in the bayesian framework). This is the case with our smoother - so despite a basis dimension of 9, it is more like we are estimating 5 full parameters from the data for our smooth term with shrinkage.
+The value "edf" refers to the estimated or effective degrees of freedom and is a measure of curve complexity - it is sort of like how many parameters are being estimated from the data. In a normal MLE [generalized] linear regression, 1 parameter estimate burns 1 d.f., but in a penalized regression context the complexity penalty has the effect of "shrinking" parameters out of the model. These shrunken estimates do not use a full degree of freedom because they do not fully key-in to the data - they are a compromise between the data and the penalty being imposed against complexity (similar to a prior in the bayesian framework). This is the case with our smooth term - despite a basis dimension of 9, it is more like we are estimating 5 full parameters from the data, due to shrsinkage.
 
 Let's look at where we are spending these degrees of freedom
 
@@ -532,156 +535,12 @@ Based on AIC (we wouldn't entirely base these decisions on AIC) which penalizes 
 
 # Conclusion
 
-We started with a GLM which fit the observed experience pretty well with a simple log feature. The unconstrained GAM is able to better match the experience at the low end because it is not constrained by any functional form. But it also finds a wavy pattern throughout the experience and maybe this is not something we would choose to implement (or even a true effect we would believe). By imposing a constraint on the spline basis we can achieve a model which captures the relative risk better than the GLM, but maintains the desired shape, and still performs comparably with the GLM based on AIC (a penalized estimate of out-of-sample prediction performance). Maybe most importantly, we save our own and our colleagues' time from business meetings spent fiddling with curves in excel in an effort to find the best compromise between higher observed loss and the thin experience which generated it.
+We started with a GLM which fit the observed experience pretty well with a simple log feature. The unconstrained GAM is able to better match the experience at the low end because it is not constrained by any functional form. But it also finds a wavy pattern throughout the experience and maybe this is not something we would choose to implement (or even a true effect we would believe). By imposing a constraint on the spline basis we can achieve a model which captures the relative risk better than the GLM, but maintains the desired shape, and still performs comparably with the GLM based on AIC (a penalized estimate of out-of-sample prediction performance). 
+
+In my mind, one of the greatest advantages in using the more flexible GAMs/non-linear methods over a GLM is the perception by our stakeholders and business partners around the quality of our analysis. With less flexible linear methods we must attach more qualifications when sharing visuals of the model output - statements like "this curve is the the best fit according to the model but some adjustments are certainly warranted here and there." It doesn't sound like your model does a very good job then! I prefer sharing results where I can confidently say that the curves are a best estimate of the underlying signal under reasonable assumptions/constraints - allowing non-linearity but assuming monotonicity; "credibility-weighting" observed experience in areas with thin data. We may even save our own and our colleagues' time from meetings spent fiddling with curves in excel trying to find the best compromise fit between higher observed loss and the thin experience which generated it.
 
 In a future Part 2 post I will plan to look at additional modeling capabilities, focusing on estimating random effects/mixed models within `mgcv` and from there moving into fully Bayesian GAMs with `brms` and stan.
 
 ```{r, echo = FALSE}
 knitr::knit_exit()
-```
-
-
-
-
-
-```{r}
-mod4 <- freMPL6 %>%
-  scam(ClaimInd ~ s(LicAge, bs = "mdcx"),
-       offset = log(Exposure),
-       family = poisson(link = "log"),
-       data = .)
-```
-
-```{r, warning=F, eval = F}
-dat_summ %>%
-  mutate(fit_mod1 = predict(mod1, ., type = "response") / Exposure,
-         fit_mod2 = predict(mod2, ., type = "response"),
-         fit_mod3 = predict(mod3, ., type = "response"),
-         fit_mod4 = predict(mod4, ., type = "response")  ) %>%
-  gather(key = "model", value = "value", freq, fit_mod1, fit_mod2, fit_mod3, fit_mod4) %>%
-  ggplot(aes(x = LicAge, y = value, color = model)) +
-  geom_line() +
-  ggtitle("Regression Comparison", "Linear, TP Splines, and Monotonic TP Splines")
-```
-
-
-
-
-
-## Other junk
-
-The default smooth matches the data much better, and in a statistical sense it may be an ideal regression fit. But we notice that it is "wiggly," going down up and down as `LicAge` increases, capturing the smooth pattern of the experience. From a business perspective we might prefer something monotonic-decreasing.
-
-
-
-# Some other options
-
-It is possible to fix the degrees of freedom used in the regression using the `fx` argument. If we set this to `TRUE`, then instead of setting an upper limit to the d.f., we will not use a penalty on complexity and instead of an upper limit `k` will specify $k-1$ d.f. be used in the smoother estimation.
-
-Possible to limit the degrees of freedom 'spent' on estimating spline basis. By setting k=3, we spend 1 on the null space (linear term) and 1 on the smooth term (eigenbasis). Not a penalized regression spline then, but a fixed d.f. regression spline
-```{r}
-gam_tps_2 <- freMPL6 %>%
-  gam(ClaimInd ~ s(LicAge, bs = "tp", fx = T, k = 3),
-      offset = log(Exposure),
-      family = poisson(link = "log"),
-      method = "REML",
-      data = .)
-```
-
-```{r}
-dat_summ %>%
-  cbind(., predict(gam_tps_2, newdata = ., type = "lpmatrix") ) %>%  
-  as_tibble() %>%
-  gather(key = "b_j", value = "b_j_x", 7:8) %>%
-  ggplot(aes(x = LicAge, y = b_j_x, color = b_j)) +
-  geom_line(linetype = "dashed") +
-  scale_y_continuous(name = "b_j(x)") +
-  geom_line(data = . %>% mutate(gam_fit_2 = predict(gam_tps_2, ., type = "response")),
-            aes(LicAge, gam_fit_2),
-            color = "black")
-```
-
-Here with just 2 basis functions in our smooth we can see more clearly that the fitted curve is a linear combination of individual basis functions.  We can also see that we want $k$ large enough to provide a sufficiently large functional subspace containing all the basis functions of different shapes which be important in our model.
-
-
-```{r}
-  dat_summ %>%
-    mutate(fx_small_k = predict(gam_tps_2, ., type = "response")) %>%
-    gather(key = "metric", value = "freq", obs_freq, fx_small_k) %>%
-    ggplot(aes(x = LicAge, y = freq, color = metric)) +
-    geom_line() +
-    ggtitle("Fit vs Observed") +
-    theme(axis.title.x = element_blank(),
-          axis.ticks.x = element_blank(), 
-          axis.text.x = element_blank(),
-          legend.position = c(.15,.2) )
-```
-
-
-```{r}
-gam_tps_2 <- freMPL6 %>%
-  gam(ClaimInd ~ s(LicAge, bs = "tp", fx = T, k=5),
-      offset = log(Exposure),
-      family = poisson(link = "log"),
-      method = "REML",
-      data = .)
-
-dat_summ %>%
-    mutate(gam_fit_1 = predict(gam_tps_1, ., type = "response"),
-           gam_fit_2 = predict(gam_tps_2, ., type = "response")) %>%
-    gather(key = "metric", value = "freq", obs_freq, gam_fit_1, gam_fit_2) %>%
-    ggplot(aes(x = LicAge, y = freq, color = metric)) +
-    geom_line() +
-    ggtitle("Fit vs Observed") +
-    theme(axis.title.x = element_blank(),
-          axis.ticks.x = element_blank(), 
-          axis.text.x = element_blank(),
-          legend.position = c(.15,.2) )
-```
-
-```{r, eval = F}
-m4 <- freMPL1 %>%
-  mutate(LicAge = round(LicAge/12, 0)) %>%
-  brm(bf(ClaimInd ~ s(LicAge, bs = "tp") + offset(log(Exposure))),
-      family = poisson(link = "log"),
-      data = ., 
-      cores = 4, seed = 42,
-      iter = 4000, warmup = 1000, thin = 10, refresh = 0,
-      control = list(adapt_delta = 0.99))
-```
-
-
-```{r}
-library(scam)
-```
-
-
-```{r}
-test <- freMPL6 %>%
-  gam(ClaimInd ~ s(LicAge, bs = "ad", fx = T, k = 4, m = 1, xt = list(bs = "tp")),
-      offset = log(Exposure),
-      family = poisson(link = "log"),
-      method = "REML",
-      data = .)
-
-gridExtra::grid.arrange(
-  
-  dat_summ %>%
-    mutate(better_fit = predict(better_glm, ., type = "response") / Exposure,
-           gam_fit_tp = predict(test, ., type = "response")) %>%
-    gather(key = "metric", value = "freq", obs_freq, better_fit, gam_fit_tp) %>%
-    ggplot(aes(x = LicAge, y = freq, color = metric)) +
-    geom_line() +
-    ggtitle("Fit vs Observed") +
-    theme(axis.title.x = element_blank(),
-          axis.ticks.x = element_blank(), 
-          axis.text.x = element_blank(),
-          legend.position = c(.15,.2) ),
-  
-  dat_summ %>%
-    ggplot(aes(x = LicAge, y = Exposure)) +
-    geom_bar(stat = 'identity'),
-  
-  heights = c(2,1)
-)
 ```

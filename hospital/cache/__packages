@@ -5,12 +5,12 @@ data.table
 bea.R
 jsonlite
 blsAPI
+zoo
 forecast
 ggplot2
 ggfortify
 tempdisagg
 Matrix
 glmnet
-zoo
 nlme
 mgcv

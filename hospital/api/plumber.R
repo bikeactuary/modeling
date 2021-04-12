@@ -1,6 +1,6 @@
 # plumber.R
 
-# set API title and description to show up in http://localhost:8000/__swagger__/
+# set API title and description to show up in http://localhost:80/__swagger__/
 #* @apiTitle Forecast API
 #* @apiDescription API for accessing forecasts from various model prediction services. PoC: only Hospital GET endpoint presently.
 

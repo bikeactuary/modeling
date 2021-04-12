@@ -49,7 +49,7 @@ Starting with the US Bureau of Economic Analysis features.
 
 Although the data was provided in an excel file, I want to demonstrate how we can pull this from public APIs. This is the starting point for production code - I do not incorporate any exception handling/failover here. I'm only providing a list of "Line Descriptions" of interest here (`bea.csv`), which I obtained from the excel file.
 
-I'm only pulling years 2014 through 2020 since the dependent variable (Hospital Volume, YoY%) is only observed in this time range.
+I'm only pulling years 2014 through 2020 since the dependent variable (Hospital Volume, YoY%) is only observed in this time range.s
 
 ```{r bea, cache=TRUE}
 bea_key <- "C9735BB9-9D83-4894-B843-E96C7BB440E3"
@@ -141,7 +141,7 @@ The BLS also provides an API, and there is an R interface available as well.
 
 ```{r bls, cache=TRUE}
 bls_key <- "280f312193354f37b12042f29f711c0e"
-bls_codes <- read.csv("bls.csv") %>% 
+bls_codes <- read.csv("bls.csv") %>%
   pull(Series)
 
 for(i in 1:ceiling(length(bls_codes)/50)) {
@@ -156,7 +156,7 @@ for(i in 1:ceiling(length(bls_codes)/50)) {
   if(i == 1) {
     dat.bls <- blsAPI(req, api_version = 2, return_data_frame = TRUE)
   } else {
-    dat.bls %<>% rbind(dat.bls, blsAPI(req, api_version = 2, return_data_frame = TRUE) )
+    dat.bls %<>% rbind(., blsAPI(req, api_version = 2, return_data_frame = TRUE) )
   }
 }
 
@@ -172,32 +172,6 @@ Let's confirm we got results for all of the original codes
 unique(dat.bls$seriesID) %>% length == length(bls_codes)
 ```
 
-We have too many records. There should be at most 7*12 = 84 records per `seriesID`, but we actually have...
-
-```{r}
-## the first 10 codes
-table(dat.bls$seriesID)[1:10]
-```
-
-Looking closer at one example...
-
-```{r}
-dat.bls %>% filter(seriesID == "CES6562000134",
-                   year == 2014,
-                   period == "M01")
-```
-
-There appear to be a varying number of replicates for each monthly measure of each seriesID. Not sure the reason - maybe something to do with more specific class codes grouped within a seriesID in the BLS database and the API is returning one record for each. Since the reported values are the same, I'll resolve the issue by selecting the first record for each.
-
-```{r}
-dat.bls %<>%
-  group_by(seriesID, year, period, periodName) %>%
-  summarise(value = first(value)) %>%
-  ungroup()
-
-table(dat.bls$seriesID)[1:10]
-```
-
 Now we can restructure the data in wide format:
 
 ```{r}
@@ -206,7 +180,8 @@ wide.bls <- dat.bls %>%
   select(seriesID, year, month, value) %>%
   tidyr::pivot_wider(id_cols = c(seriesID, year, month),
                      names_from = seriesID,
-                     values_from = value)
+                     values_from = value) %>%
+  arrange(year, month)
 
 wide.bls
 ```
@@ -247,7 +222,7 @@ pacf(y.ts, plot = T)
 
 Only the first lag shows correlation with the response in the ACF. We have no significant lags in the PACF, indicating the AR term is 0.
 
-We can use `auto.arima()` to apply these heuristics to determin the correct specification for an ARIMA model.
+We can use `auto.arima()` to apply these heuristics to determine the correct specification for an ARIMA model.
 
 ```{r}
 auto.arima(y.ts)
@@ -314,7 +289,7 @@ keep_list <- na_cnt[na_cnt <= 5] %>% names
 na_cnt[!(names(na_cnt) %in% keep_list)]
 ```
 
-We only have 81 observations of $y$, so we will remove these features with 35+ `NA`. For those with fewer (5 or less) `NA`, we will use use Last Observation Carried Forward (LOCF) to handle most `NA`. This avoids introducing forward-looking info. For any `NA` appearing at the very start of a series, we impute the mean for the series so as to keep the observations for analysis.
+We only have 81 observations of $y$, so we will remove these features with many `NA`. For those with fewer (5 or less) `NA`, we will use use Last Observation Carried Forward (LOCF) to handle most `NA`. This avoids introducing forward-looking info. For any `NA` appearing at the very start of a series, we impute the mean for the series so as to keep the observations for analysis.
 
 ```{r}
 x.ts.glmnet <- x.ts[, keep_list] %>%
@@ -448,12 +423,12 @@ lag_names <- paste("lag", formatC(1:3, width = nchar(max(1:3)), flag = "0"),
 lag_functions <- setNames(paste("dplyr::lag(., ", 1:3, ")"), lag_names)
 
 ## select the features and mutate the lags
-lagged_x <- x.ts %>%
+lagged_x <- x.ts.glmnet %>%
   as_tibble() %>%
   select(all_of(top5_x)) %>%
   mutate_at(vars(top5_x), funs_(lag_functions)) %>%
-  slice(-c(1:3)) %>%
-  ts(start = c(2014, 4), frequency = 1) ## max lag is 3, so drop first 3 records for simplicity
+  slice(-c(1:3)) %>% ## max lag is 3, so drop first 3 records for simplicity
+  ts(start = c(2014, 4), frequency = 12)
 ```
 
 Now we estimate the models for the first through third lags separately, including AR, I, and MA components
@@ -530,7 +505,7 @@ Now we are ready to fit our additive model to just the first 69 periods, holding
 
 ```{r}
 m4 <- gam(model_form,
-          data = tibble(y = y.ts_month) %>% cbind(., X_pca %>% as_tibble) %>% slice(1:69),
+          data = tibble(y = y.ts_month) %>% bind_cols(., X_pca %>% as_tibble) %>% slice(1:69),
           family = gaussian(),
           method = "GCV.Cp",
           select = TRUE)

@@ -82,7 +82,7 @@ table(freMPL6$ClaimInd)
 One thing I want to change is to express `LicAge` in integral years rather than months. We would not throw out information like this normally, but for our purposes it will simplify some plotting.
 
 ```{r}
-freMPL6 %<>% 
+freMPL6 %<>%
   as_tibble() %>%
   mutate(LicAge = floor(LicAge/12))
 ```
@@ -258,7 +258,7 @@ Take a look at the model summary and make note of the terms in the model
 summary(poly_glm)
 ```
 
-Our leading model so far seems to be the GLM with a log-transform. Is this the best we can do?
+Our leading model so far seems to be the GLM with a log-transform - but it looks like we under-estimate the risk at the low end of LicAge. Suppose our carrier plans to begin writing more non-standard risks in the lower age group in future years. This is a compelling reason to obtain the most accurate predictions we can for this segment where our historical experience is thin. Is this the best we can do?
 
 # GAM w/ Thin Plate Splines
 
@@ -280,14 +280,13 @@ $\lambda$ is the smoothing parameter which controls how much penalty enters the 
 
 ## Default setting GAM
 
-A GAM is fit using `mgcv`'s `gam()` and `s()` methods as follows
+A GAM is fit using the `gam()` and `s()` methods as follows
 
 ```{r}
 gam_tps_1 <- freMPL6 %>%
   gam(ClaimInd ~ s(LicAge, bs = "tp"), #TPS basis
       offset = log(Exposure),
       family = poisson(link = "log"),
-      method = "REML",
       data = .)
 ```
 
@@ -297,7 +296,7 @@ Let's see what the `summary()` tells us about our model
 summary(gam_tps_1)
 ```
 
-We notice that we spend about 5 degrees of freedom estimating the smooth term `s(LicAge)`.
+We notice that we spend about 6 degrees of freedom estimating the smooth term `s(LicAge)`.
  
 Compare the GAM fit to the GLM with logged feature
 
@@ -333,7 +332,7 @@ Here we only have one $x$, and the spline basis $f_1(x_1)$ is estimated as
 
 $$f_1(x_1) = \sum^{k}_{j=1}b_j(x_1)\beta_j$$
 
-$k$ represents the basis dimension for the smooth. What is the dimension of our selected spline basis? Well since we know we should be estimating 1 $\beta$ for each basis function, let's check
+$k$ represents the basis dimension for the smooth. What is the dimension of our selected spline basis? Well since we know we should be estimating one $\beta$ for each basis function, let's check
 
 ```{r}
 coef(gam_tps_1)
@@ -360,7 +359,9 @@ dat_summ %>%
             color = "black")
 ```
 
-Let's now confirm our understanding by getting predictions a few different ways, we should get the same result from each.
+Notice that the first basis function is linear.
+
+Now let's confirm our understanding by getting predictions a few different ways, we should get the same result from each.
 
 ```{r}
 cbind(
@@ -390,7 +391,7 @@ Let's look at the summary again to inspect how complex our model is.
 summary(gam_tps_1)
 ```
 
-The value "edf" refers to the estimated or effective degrees of freedom and is a measure of complexity. In a normal MLE (generalized) linear regression, 1 parameter estimate burns 1 d.f., but in a penalized regression context the complexity penalty has the effect of "shrinking" parameters out of the model. These shrunken estimates do not use a full degree of freedom because they do not fully rely on the data - they are a compromise between the data and the penalty being imposed on complexity (similar to a prior in the bayesian framework). This is the case with our smoother - so despite have a basis dimension of 9, it is more like we are estimating 5 full parameters from the data for our smooth term with shrinkage.
+The value "edf" refers to the estimated or effective degrees of freedom and is a measure of complexity. In a normal MLE (generalized) linear regression, 1 parameter estimate burns 1 d.f., but in a penalized regression context the complexity penalty has the effect of "shrinking" parameters out of the model. These shrunken estimates do not use a full degree of freedom because they do not fully rely on the data - they are a compromise between the data and the penalty being imposed on complexity (similar to a prior in the bayesian framework). This is the case with our smoother - so despite a basis dimension of 9, it is more like we are estimating 5 full parameters from the data for our smooth term with shrinkage.
 
 Let's look at where we are spending these degrees of freedom
 
@@ -401,7 +402,7 @@ gam_tps_1$edf %>% sum
 
 Because the reported edf are approximate, terms may be slightly below 0 or above 1. We can interpret this as indicating the corresponding basis function was shrunken nearly out of the smooth term, or not shrunken at all, respectively. Here we have one basis function shrunken completely 
 
-Our `edf` sum balances with what is reported in the model summary (5.277, plus 1 for the Intercept). But we should keep in mind that we are also estimating a smoothing parameter which controls the amount of penalty applied. If we want edf's that accounts for this parameter as well, then you must look at `edf2`.
+Our `edf` sum balances with what is reported in the model summary (6.065, plus 1 for the Intercept). But we should keep in mind that we are also estimating a smoothing parameter which controls the amount of penalty applied. If we want edf's that accounts for this parameter as well, then you must look at `edf2`.
 
 ```{r}
 gam_tps_1$edf2
@@ -417,7 +418,7 @@ gam_tps_2X <- freMPL6 %>%
   gam(ClaimInd ~ s(LicAge, DrivAge, bs = "tp", k = 15), # a smooth surface on (LicAge, DrivAge)
       offset = log(Exposure),
       family = poisson(link = "log"),
-      method = "REML",
+      method = "REML", ## The recommended method which is less prone to over-smoothing compared to GCV
       data = .)
 
 ## plotting with persp()
@@ -449,7 +450,7 @@ fit_2X <- matrix(predict(gam_tps_2X, newdat, type = "response"), steps, steps)
 persp(LicAge, DrivAge, fit_2X, theta = 120, col = "yellow", ticktype = "detailed")
 ```
 
-Here we can see that the "pressure" of the signal in our data is only strong enough to bend the plate at the corner where both `DrivAge` and `LicAge` are low, and elsewhere we have essentially a flat plate, i.e. a plane. We can infer from this that we did not shrink our the linear parts of the smooths, only the wiggly bits. That is the default behavior - shrinkage is applied in the "range space" containing the non-linear basis functions, not to the "null space" with the linear components of each term. But there are a couple ways to also apply shrinkage here if we like.
+Here we can see that the "pressure" of the signal in our data is only strong enough to bend the plate at the corner where both `DrivAge` and `LicAge` are low, and elsewhere we have essentially a flat plate, i.e. a plane. We can infer from this that we did not shrink out the linear parts of the smooths, only the wiggly bits. That is the default behavior - shrinkage is applied in the "range space" containing the non-linear basis functions, not to the "null space" with the linear components of each term. But there are a couple ways to also apply shrinkage here if we like.
 
 ## Shrinkage on the null space
 
@@ -469,7 +470,7 @@ fit_shrink <- matrix(predict(gam_tps_shrink, newdat, type = "response"), steps, 
 persp(LicAge, DrivAge, fit_shrink, theta = 120, col = "yellow", ticktype = "detailed")
 ```
 
-The double penalty approach is used by setting `select=TRUE` in the `gam()` call. The disadvantages of this approach are that it is either on or off for all smooth terms, and now instead of one smoothering parameter we must estimate two - one each for the null space (linear terms) and the range space (non-linear terms). The advantages are that it treats both linear and non-linear terms the same from the point of view of shrinkage, and that this tends to produce more robust estimates according to the package author.
+The double penalty approach is used by setting `select=TRUE` in the `gam()` call. The disadvantages of this approach are that it is either on or off for all smooth terms, and now instead of one smoothing parameter we must estimate two - one each for the null space (linear terms) and the range space (non-linear terms). The advantages are that it treats both linear and non-linear terms the same from the point of view of shrinkage, and that this tends to produce more robust estimates according to the package author.
 
 ```{r}
 gam_tps_dblpen <- freMPL6 %>%
@@ -484,13 +485,13 @@ fit_dblpen <- matrix(predict(gam_tps_dblpen, newdat, type = "response"), steps, 
 persp(LicAge, DrivAge, fit_dblpen, theta = 120, col = "yellow", ticktype = "detailed")
 ```
 
-The double penalty approach produces more regularlization on the linear components than the shrinkage splines. These abilities become powerful when you have more than a handful of features and want to perform automatic feature selection, as in a Lasso regression.
+The double penalty approach produces more regularlization on the linear components than the shrinkage splines, resulting in a more level surface. These options become powerful when you have more than a handful of features and want to perform automatic feature selection, as in a Lasso regression.
 
 # Business Constraints
 
 So far we've seen how we can improve our estimator with more flexible shapes to capture non-linear patterns and with regularization to reduce estimator variance by controlling over-fitting of the data. So let's turn back to the motivation of better reflecting business constraints.
 
-Looking at both our univariate and bivariate models, we see that better data fitting can mean curves/surfaces that are wavy. This can be totally fine depending on the application - for example if we are modeling the result of some operational process where customers and regulators are not "seeing" model outputs directly. On the other hand, this may be undesireably in a pricing application from the customer experience perspective - in particular when we have rating factors which increment over time (driver age, license age) then the result may be rates that swing up and down with each policy renewal/year.
+Looking at both our univariate and bivariate models, we see that better data fitting can mean curves/surfaces that are wavy. This can be totally fine depending on the application - for example if we are modeling the result of some operational process where customers and regulators are not seeing or feeling the effects of modeling decisions so directly. On the other hand, this may be undesireably in a pricing application from the customer experience perspective - in particular when we have rating factors which increment over time (driver age, license age) then the result may be rates that swing up and down with each policy renewal/year.
 
 Can we achieve more flexible curves while also maintaining monotonicity as we had with our log-transform GLM?
 
@@ -506,7 +507,7 @@ Let's take a look at a model for `LicAge` where we impose a monotonic decreasing
 
 ```{r, warning=FALSE}
 scam_mono_d <- freMPL6 %>%
-  scam(ClaimInd ~ s(LicAge, bs = "mpd"),
+  scam(ClaimInd ~ s(LicAge, bs = "mpd"), ## monotonic decreasing constraint on basis expansion
        offset = log(Exposure),
        family = poisson(link = "log"),
        data = .)
@@ -519,22 +520,28 @@ dat_summ %>%
   geom_line()
 ```
 
-We've expressed our desire for a non-wavy curve as a shape constraint within the spline basis itself, and estimated the optimal curve given the data under that condition. This is also possible in the bivariate case by using the argument `bs="tedmd"`, though I will not do so here because it generates warnings due to not being an appropriate model for this data.
+We've expressed our desire for a non-wavy curve as a shape constraint within the spline basis itself, and estimated the optimal curve from the data under that condition. This is also possible in the bivariate case by using the argument `bs="tedmd"`, though I will not do so here because it generates warnings due to not being an appropriate model for this data.
 
-Now let's consider the predictive performance of our scam model as compared to our first GAM with no shape constraint.
+Finally let's look at the in-sample estimate of predictive performance for three of our models - the GLM w/ log-transform, the GAM without shape constraints, and our model incorporating business considerations via a monotone decreasing spline basis.
 
 ```{r}
-AIC(scam_mono_d, gam_tps_1)
+AIC(better_glm, gam_tps_1,  scam_mono_d)
 ```
 
-We end up with a less complex model, with the desired shape, and which performs comparably to the original based on the AIC (an estimate of out-of-sample prediction performance). I also think we produce a better result for our business partners which incorporates some of the constraints they have on what can be implemented.
+Based on AIC (we wouldn't entirely base these decisions on AIC) which penalizes prediction improvement for added model complexity, we would select the unconstrained GAM as our best model. But based on the business considerations and the desire to write more risks in the low age range prospectively, we would choose the GAM with monotonic constraint.
 
 # Conclusion
 
+We started with a GLM which fit the observed experience pretty well with a simple log feature. The unconstrained GAM is able to better match the experience at the low end because it is not constrained by any functional form. But it also finds a wavy pattern throughout the experience and maybe this is not something we would choose to implement (or even a true effect we would believe). By imposing a constraint on the spline basis we can achieve a model which captures the relative risk better than the GLM, but maintains the desired shape, and still performs comparably with the GLM based on AIC (a penalized estimate of out-of-sample prediction performance). Maybe most importantly, we save our own and our colleagues' time from business meetings spent fiddling with curves in excel in an effort to find the best compromise between higher observed loss and the thin experience which generated it.
 
-```{r, inlude = F}
+
+
+```{r, echo = FALSE}
 knitr::knit_exit()
 ```
+
+
+
 
 
 ```{r}
@@ -561,23 +568,9 @@ dat_summ %>%
 
 
 
-
-
 ## Other junk
 
 The default smooth matches the data much better, and in a statistical sense it may be an ideal regression fit. But we notice that it is "wiggly," going down up and down as `LicAge` increases, capturing the smooth pattern of the experience. From a business perspective we might prefer something monotonic-decreasing.
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 

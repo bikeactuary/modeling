@@ -534,7 +534,7 @@ Based on AIC (we wouldn't entirely base these decisions on AIC) which penalizes 
 
 We started with a GLM which fit the observed experience pretty well with a simple log feature. The unconstrained GAM is able to better match the experience at the low end because it is not constrained by any functional form. But it also finds a wavy pattern throughout the experience and maybe this is not something we would choose to implement (or even a true effect we would believe). By imposing a constraint on the spline basis we can achieve a model which captures the relative risk better than the GLM, but maintains the desired shape, and still performs comparably with the GLM based on AIC (a penalized estimate of out-of-sample prediction performance). Maybe most importantly, we save our own and our colleagues' time from business meetings spent fiddling with curves in excel in an effort to find the best compromise between higher observed loss and the thin experience which generated it.
 
-
+In a future Part 2 post I will plan to look at additional modeling capabilities, focusing on estimating random effects/mixed models within `mgcv` and from there moving into fully Bayesian GAMs with `brms` and stan.
 
 ```{r, echo = FALSE}
 knitr::knit_exit()

@@ -35,4 +35,4 @@ pr$registerHooks(
 
 pr %>%
   pr_set_docs("swagger") %>%
-  pr_run(port=4242, host ="0.0.0.0")
+  pr_run(port=80, host ="0.0.0.0")

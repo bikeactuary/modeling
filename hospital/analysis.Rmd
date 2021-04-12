@@ -1,0 +1,589 @@
+---
+title: "Hospital Analysis"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+author: Michael Barr, ACAS, MAAA, CPCU
+output:
+  html_document:
+    self_contained: true
+    theme: united
+    highlight: tango
+    code_folding: show
+    df_print: paged
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    number_sections: true
+---
+
+# Environment
+
+```{r, message = FALSE}
+options(na.action = "na.fail",
+        scipen = 999)
+options(dplyr.summarise.inform = FALSE)
+knitr::opts_chunk$set(cache.path = "cache/",
+                      warning = FALSE)
+library(dplyr)
+library(magrittr)
+library(bea.R)
+library(jsonlite)
+library(blsAPI)
+library(zoo)
+library(forecast)
+library(ggplot2)
+library(ggfortify)
+library(tempdisagg)
+library(glmnet)
+library(mgcv)
+```
+
+# Data Prep
+
+I'll set up my data for modeling here.
+
+## BEA
+
+Starting with the US Bureau of Economic Analysis features.
+
+### API
+
+Although the data was provided in an excel file, I want to demonstrate how we can pull this from public APIs. This is the starting point for production code - I do not incorporate any exception handling/failover here. I'm only providing a list of "Line Descriptions" of interest here (`bea.csv`), which I obtained from the excel file.
+
+I'm only pulling years 2014 through 2020 since the dependent variable (Hospital Volume, YoY%) is only observed in this time range.
+
+```{r bea, cache=TRUE}
+bea_key <- "C9735BB9-9D83-4894-B843-E96C7BB440E3"
+bea_codes <- read.csv("bea.csv", header = FALSE) %>% 
+  pull(V1)
+
+beaSpecs <- list(
+  'UserID' = bea_key ,
+  'Method' = 'GetData',
+  'DatasetName' = 'NIUnderlyingDetail',
+  'TableName' = 'U20403',
+  'Frequency' = 'M',
+  'Year' = '2014,2015,2016,2017,2018,2019,2020',
+  'ResultFormat' = 'json')
+
+dat.bea <- beaGet(beaSpecs) %>%
+  filter(LineDescription %in% trimws(bea_codes))
+
+head(dat.bea)
+```
+
+### Cleaning
+
+Each row looks like it corresponds to a distinct `SeriesCode`, so let's confirm.
+
+```{r}
+table(dat.bea$SeriesCode)
+```
+
+There are 2 entries for "DHLCRA".
+
+```{r}
+dat.bea %>%
+  filter(SeriesCode == "DHLCRA") %>%
+  select(1:5)
+```
+
+We will create a unique key using both `SeriesCode` and `LineNumber`
+
+```{r}
+dat.bea %<>% 
+  mutate(SeriesLine = paste0(SeriesCode, "_", LineNumber)) %>%
+  select(-c(SeriesCode, LineNumber)) %>%
+  relocate(SeriesLine, .after = TableName)
+```
+
+Finally, we need the data in wide format - each row a month, and each column a variable
+
+```{r}
+wide.bea <- dat.bea %>%
+  select(SeriesLine, LineDescription, 7:90) %>%
+  tidyr::gather(key = "period", value = "xit", -c(1:2)) %>%
+  mutate(year = substr(period, 11, 14) %>% as.numeric,
+         month = substr(period, 16, 17) %>% as.numeric) %>%
+  select(-c(period, LineDescription)) %>%
+  relocate(xit, .after = last_col()) %>%
+  arrange(SeriesLine, year, month) %>%
+  tidyr::pivot_wider(id_cols = c(SeriesLine, year, month),
+                     names_from = SeriesLine,
+                     values_from = xit)
+
+head(wide.bea)
+```
+
+### API Note
+
+While a maintained R interface to the API is nice to have for R users, it is often not available. We can get the same result from this API writing the request string directly, as follows:
+
+```{r, eval = FALSE}
+## Not run
+dat.bea <- paste0("https://apps.bea.gov/api/data?&",
+                  "UserID=", bea_key, "&",
+                  "method=GetData&",
+                  "datasetname=NIUnderlyingDetail&",
+                  "TableName=U20403&",
+                  "Frequency=M&",
+                  "Year=2014,2015,2016,2017,2018,2019,2020&",
+                  "ResultFormat=JSON") %>%
+  fromJSON(.)
+```
+
+## BLS
+
+Now we perform the same steps for Bureau of Labor Statistics (BLS) data before binding the two `mts` (multivariate time series) objects together
+
+### API
+
+The BLS also provides an API, and there is an R interface available as well.
+
+```{r bls, cache=TRUE}
+bls_key <- "280f312193354f37b12042f29f711c0e"
+bls_codes <- read.csv("bls.csv") %>% 
+  pull(Series)
+
+for(i in 1:ceiling(length(bls_codes)/50)) {
+  
+  j <- min(i*50, length(bls_codes)) ## ending index of bls codes to submit in request i
+  
+  req <- list(
+    'registrationkey'= bls_key,
+    'seriesid'= bls_codes[((i-1)*50 + 1):j],
+    'startyear'= 2014,
+    'endyear'= 2020)
+  if(i == 1) {
+    dat.bls <- blsAPI(req, api_version = 2, return_data_frame = TRUE)
+  } else {
+    dat.bls %<>% rbind(dat.bls, blsAPI(req, api_version = 2, return_data_frame = TRUE) )
+  }
+}
+
+dat.bls %<>% as_tibble()
+dat.bls
+```
+
+### Cleaning
+
+Let's confirm we got results for all of the original codes
+
+```{r}
+unique(dat.bls$seriesID) %>% length == length(bls_codes)
+```
+
+We have too many records. There should be at most 7*12 = 84 records per `seriesID`, but we actually have...
+
+```{r}
+## the first 10 codes
+table(dat.bls$seriesID)[1:10]
+```
+
+Looking closer at one example...
+
+```{r}
+dat.bls %>% filter(seriesID == "CES6562000134",
+                   year == 2014,
+                   period == "M01")
+```
+
+There appear to be a varying number of replicates for each monthly measure of each seriesID. Not sure the reason - maybe something to do with more specific class codes grouped within a seriesID in the BLS database and the API is returning one record for each. Since the reported values are the same, I'll resolve the issue by selecting the first record for each.
+
+```{r}
+dat.bls %<>%
+  group_by(seriesID, year, period, periodName) %>%
+  summarise(value = first(value)) %>%
+  ungroup()
+
+table(dat.bls$seriesID)[1:10]
+```
+
+Now we can restructure the data in wide format:
+
+```{r}
+wide.bls <- dat.bls %>%
+  mutate(month = substr(period, 2, 3) %>% as.integer) %>%
+  select(seriesID, year, month, value) %>%
+  tidyr::pivot_wider(id_cols = c(seriesID, year, month),
+                     names_from = seriesID,
+                     values_from = value)
+
+wide.bls
+```
+
+## Response
+
+The response is taken from the data provided and formated as a time series (`ts`) object
+
+```{r}
+y <- read.csv("response.csv", header = TRUE) %>%
+  pull(1)
+
+y.ts <- ts(y, start = c(2014, 1), frequency = 4)
+y.ts
+```
+
+We have 27 **quarterly** observations of `y`. We face an analysis decision here. We can disaggregate the response data by interpolating monthly values from the quarterly observations; or we can aggregate the independent variable measurements in some way - by taking the mean or the sum of each $x_{i;t:t+2}$ within a quarter, for example. We will come to this later on.
+
+# EDA
+
+## Time series (endogenous)
+
+Let's visualize the time series for Hospital Volume YoY% (y)
+
+```{r}
+autoplot(y.ts)
+```
+
+This shows no seasonality and appears to be a stationary process. We can confirm this by calculating the autocorrelation and partial autocorrelation functions.
+
+```{r}
+acf(y.ts, plot = T)
+```
+
+```{r}
+pacf(y.ts, plot = T)
+```
+
+Only the first lag shows correlation with the response in the ACF. We have no significant lags in the PACF, indicating the AR term is 0.
+
+We can use `auto.arima()` to apply these heuristics to determin the correct specification for an ARIMA model.
+
+```{r}
+auto.arima(y.ts)
+m1 <- Arima(y.ts, c(0,0,1))
+summary(m1)
+```
+
+This confirms that the likely model is an MA(1) model - the prediction error from the first lagged response is taken as an input in the next prediction. The coefficient estimate on this term is .7284 In other words, we predict the global mean $\mu$ for the first observation (t=0), and if we underpredict by $\epsilon_0$, then the prediction in the next period (t=1) is the mean plus the last error times .7284
+
+$$
+y_t = \mu + .7284 \times \epsilon_{t-1}
+$$
+
+Essentially, this means the process is more of a slow, smooth drift than a white noise.
+
+## MA(1) Model
+
+Forecasts are not really possible beyond 1 period from an MA(1) model, since the prediction errors are unknown. Forecasts beyond 1 period are just the global mean.
+
+```{r}
+forecast(m1, 10) %>% autoplot()
+```
+
+So there is not much useful info contained in past observations $y_t$ for forecasting - we will focus on exogenous predictors. 
+
+## Disaggregate y
+
+To work with exogenous predictors we need to have $y_t$ and $x_t$ at the same resolution. A common approach is to disaggregate the response via interpolation. We will do this with an interpolation that is constrained such that the mean interpolated value for the 3 months in any quarter is equal to the observed value for the quarter.
+
+```{r}
+y_disagg <- tempdisagg::td(y.ts ~ 1,
+                           conversion = "average",
+                           to = "monthly")
+y.ts_month <- predict(y_disagg)
+
+autoplot(y.ts_month) +
+  geom_point(data = data.frame(y = y, date = seq(as.Date("2014/2/1"), as.Date("2020/9/1"), by = "quarter")),
+             aes(x = date, y = y))
+
+```
+
+We have not interpolated beyond September 2020, leaving out the final quarter to forecast.
+
+```{r}
+tail(y.ts_month)
+```
+
+### Exogenous Predictors
+
+I'm going to bind the features together, and we will line $x_t$ up with $y_t$ for the initial modeling. This may give good model results but it could be that the model is impractical.  I do not know enough about the data collection process or how a forecast may be operationalized - maybe it is possible to obtain monthly values for $x_t$ (from the BLS and BEA releases) some time before the quarterly $y_t$ is publically available (e.g. before financial results are released by public companies). If it is, then this could be a fine setup if resulting forecasts have some value in that timeframe. If not, we need to time-shift our predictors in a way that better reflects the operational reality of our data generating process.
+
+```{r}
+x.ts <- ts(cbind(wide.bea %>% select(-c(year, month)),
+                 wide.bls %>% select(-c(year, month))),
+           frequency = 12)[1:81, ]
+
+```
+
+Identify features with many NA - these will not be useful for forecasting and would not be possible to fit in most models without imputation
+
+```{r}
+na_cnt <- apply(x.ts, 2, function(x) sum(is.na(x)))
+keep_list <- na_cnt[na_cnt <= 5] %>% names
+na_cnt[!(names(na_cnt) %in% keep_list)]
+```
+
+We only have 81 observations of $y$, so we will remove these features with 35+ `NA`. For those with fewer (5 or less) `NA`, we will use use Last Observation Carried Forward (LOCF) to handle most `NA`. This avoids introducing forward-looking info. For any `NA` appearing at the very start of a series, we impute the mean for the series so as to keep the observations for analysis.
+
+```{r}
+x.ts.glmnet <- x.ts[, keep_list] %>%
+  imputeTS::na_locf(na_remaining = "mean")
+
+sum(is.na(x.ts.glmnet))
+```
+
+# Modeling
+
+## Lasso
+
+This first algorithm is similar to a standard MLE/OLS regression but differs in that it introduces a penalty term (L1 Norm) on model complexity. The penalized regression has the property of shrinking out small effects and keeping the strongest features. We will first tune the hyperparameter lambda via 5-fold cross-validation.
+
+I am holding out the last 12 periods for validation purposes
+
+```{r}
+set.seed(42)
+cv.m2 <- cv.glmnet(x = x.ts.glmnet[1:69, ],
+                   y = y.ts_month[1:69] %>% as.vector,
+                   alpha = 1, ## LASSO
+                   family = "gaussian",
+                   standardize = TRUE,
+                   lambda = exp(seq(-10, 0, .05)),
+                   nfolds = 5)
+plot(cv.m2)
+```
+
+I'll choose the minimum prediction error lambda. Another common option is to choose the largest lambda which has estimated prediction error within 1 s.e. of the minimum. This gives a less complex model which is not **statistically** different in terms of the estimated prediction accuracy - it is often more robust to new data given due to greater parsimony.
+
+```{r}
+m2 <- glmnet( x = x.ts.glmnet[1:69,] %>% as.matrix,
+              y = y.ts_month[1:69] %>% as.vector,
+              alpha = 1, ## LASSO
+              lambda = cv.m2$lambda.min,
+              family = "gaussian",
+              standardize = TRUE)
+```
+
+Finally, let's forecast on the held-out 12 months and evaluate the accuracy.
+
+```{r, message=FALSE, warning=FALSE}
+preds <- predict(m2, newx = x.ts.glmnet %>% as.matrix, type = "response")
+
+tibble(Observed = y.ts_month,
+       date = seq(as.Date("2014/1/1"), as.Date("2020/9/1"), by = "month"),
+       Forecast = c(rep(NA_real_, 69), preds[70:81])) %>%
+  tidyr::gather(key = "Series", value = "Y", Observed, Forecast) %>%
+  ggplot(aes(x = date, y = Y, color = Series)) +
+  geom_line() +
+  geom_point()
+```
+
+We see that the features and the model do provide some signal of y out of time, but does not faithfully forecast the magnitude of the drop that occurred in 2020. Also, the recent break in `y` begins a quarter before the event shows up in the covariates, meaning that these may be something of a lagging indicator.
+
+### Lasso Top Features
+
+We standardized covariates before fitting the regression, so parameter estimates are commensurable. They are ordered here by their magnitudes, with negative signs indicating inverse relationships to the response.
+
+```{r}
+a <- tibble(feature = rownames(coef(m2)),
+            beta = coef(m2) %>% as.vector) %>%
+  arrange(abs(beta) %>% desc) %>%
+  left_join(dat.bea %>% select(SeriesLine, LineDescription),
+            by = c("feature" = "SeriesLine")) %>%
+  left_join(read.csv("bls.csv"),
+            by = c("feature" = "Series")) %>%
+  mutate(Description = case_when(is.na(Description) ~ LineDescription,
+                                 TRUE ~ Description)) %>%
+  select(-LineDescription)
+
+a[2:30,]
+```
+
+### Final LASSO
+
+Assuming this was our best performing candidate model after a bakeoff, then we fit a final model in the same method as above but now using all of the available data.
+
+```{r}
+set.seed(42)
+cv.final <- cv.glmnet(x = x.ts.glmnet,
+                      y = y.ts_month %>% as.vector,
+                      alpha = 1, ## LASSO
+                      family = "gaussian",
+                      standardize = TRUE,
+                      lambda = exp(seq(-10, 0, .05)),
+                      nfolds = 5)
+
+m.final <- glmnet( x = x.ts.glmnet %>% as.matrix,
+                   y = y.ts_month %>% as.vector,
+                   alpha = 1, ## LASSO
+                   lambda = cv.final$lambda.min,
+                   family = "gaussian",
+                   standardize = TRUE)
+
+```
+
+We generate a forecast for the final 3 months of 2020 (in case it is of interest to a reviewer), for which we know the values for $x_{i,t}$. For a quarterly estimate we can simply average the three results.
+
+Note that we have `NA` observations for some of the in-model features, so we again use LOCF for imputation.
+
+```{r}
+newdata <- ts(cbind(wide.bea %>% select(-c(year, month)),
+                    wide.bls %>% select(-c(year, month))),
+              frequency = 12)[82:84, ]
+
+forecast_monthly <- tibble(period = c("2020/10/1", "2020/11/1", "2020/12/1") %>% as.Date %>% format("%B %Y"),
+                           forecast = predict(m.final, newx = newdata[, keep_list] %>%
+                                                imputeTS::na_locf(),
+                                              type = "response")[,1] )
+forecast_monthly
+```
+
+These are likely pretty poor forecasts because we are using machine learning techniques rather than a time series regression with exogenous features and bayesian priors informed by domain expertise. Even if we were to use lagged observations of Y (or $\epsilon$) in model estimation, we have not observed enough shocks in Y to inform a mean reversion component for the process. Finally, we only have 27 true observations of y (81 with interpolation) but we have 29 features selected by the Lasso. This means our model is essentially a 'lookup' to the historical observed values.
+
+## AR(3) with exogenous features
+
+This is just meant to demonstrate an alternative approach for modeling this data - perhaps the default approach.
+
+Suppose $x_t$ is not available in production at the time we need to forecast $y_t$. If that is true, then we would study the relationship between $Y$ and the predictors we do have at the time we create forecasts - "lagged" observations of $x$ (from prior periods). I will provide a simple demonstration using the **monthly** disaggregated data. We need to adjust the model for inference purposes - there will now of course be significant AR terms since we created each monthly $y_t$ by interpolating between quarterly observations. With this adjustment, we can make inferences about the relationships to the exogenous predictors.
+
+We will choose just the top 5 features from the lasso regression earlier.
+
+```{r, message = FALSE}
+## get top 5 features based on lasso selection
+top5_x <- a %>% slice(2:6) %>% pull(feature)
+
+## utility functions
+lag_names <- paste("lag", formatC(1:3, width = nchar(max(1:3)), flag = "0"), 
+                   sep = "_")
+lag_functions <- setNames(paste("dplyr::lag(., ", 1:3, ")"), lag_names)
+
+## select the features and mutate the lags
+lagged_x <- x.ts %>%
+  as_tibble() %>%
+  select(all_of(top5_x)) %>%
+  mutate_at(vars(top5_x), funs_(lag_functions)) %>%
+  slice(-c(1:3)) %>%
+  ts(start = c(2014, 4), frequency = 1) ## max lag is 3, so drop first 3 records for simplicity
+```
+
+Now we estimate the models for the first through third lags separately, including AR, I, and MA components
+
+```{r}
+m3.1 <- auto.arima(y.ts_month[4:69],
+                   xreg = lagged_x[1:66, 6:10]) ## First lag of X
+
+m3.2 <- auto.arima(y.ts_month[4:69],
+                   xreg = lagged_x[1:66, 11:15]) ## Second lag of X
+
+m3.3 <- auto.arima(y.ts_month[4:69],
+                   xreg = lagged_x[1:66, 16:20]) ## Third lag of X
+```
+
+Summarizing the model with lag=1 - we see that an AR(3) process is now appropriate (an artifact of our dataset creation steps).
+
+More importantly, we see comparatively small effects estimates for the lagged features.
+
+```{r}
+summary(m3.1)
+```
+
+We can compare all 3 models using the corrected AIC metric (an estimate of out-of-sample prediction errors based on training deviance)
+
+```{r}
+m3.1$aicc
+m3.2$aicc
+m3.3$aicc
+```
+
+This indicates `m3.3` is the best model
+
+```{r}
+summary(m3.3)
+```
+
+None of these features have a non-zero effect at a 90% confidence level, but at the lower standard for evidence of an 80% confidence level we would infer that the third lag of DNPNRA-184 is non-zero. Recalling that we are dealing with diaggregated quarterly data here, this most likely is saying we should look at the first lag of DNPNRA-184 in order to forecast the next (or current) quarterly result for `y`.
+
+# Addendum
+
+Given the linear dependence of the design matrix (having more predictors than observations), pre-processing approaches to reduce dimensionality can benefit prediction. The prior approaches relied on feature selection to reduce dimensionality. Another approach is use of a "Q-mode" PCA (principal components analysis) to construct an orthonormal basis `U` of `X` and select the first `k` orthogonal vectors containing most of the information in `X`.
+
+## PCA
+
+First we perform the PCA using the same features used in the earlier lasso regression - those which did not suffer from high missingness.
+
+```{r}
+pca <- prcomp(x.ts.glmnet)
+summary(pca)
+```
+
+The first component contains about 76% of the information in `X`; we an retain 95% of the information with just 8 components. This is relatively high (in my experience as a practitioner) and indicates strong correlations between the variables in `X` - not surprising as these features are all related to the same medical topic and all are hypothesized to correlate with `Y` by domain experts.
+
+## GAM Regression
+
+Next we will use a subset of these components in a regression. I'll select the top 6 components and use them in a generalized additive model with thin plate spline basis. I'll add some penalty to regularize both the smooth and non-linear terms.
+
+First we transform our full design matrix into the orthonormal basis `U`, selecting just the first 6 columns
+
+```{r}
+X_pca <- predict(pca, x.ts.glmnet)[,1:8]
+X_pca %>% head
+```
+
+We need to construct the formula used by `mgcv::gam`.
+
+```{r}
+model_form <- formula(paste0("y ~ ", paste0("s(", colnames(X_pca), ", bs = 'ts', k=4)", collapse = " + ")))
+model_form
+```
+
+Now we are ready to fit our additive model to just the first 69 periods, holding out 12 month for the out-of-time validation as we did earlier.
+
+```{r}
+m4 <- gam(model_form,
+          data = tibble(y = y.ts_month) %>% cbind(., X_pca %>% as_tibble) %>% slice(1:69),
+          family = gaussian(),
+          method = "GCV.Cp",
+          select = TRUE)
+
+summary(m4)
+```
+
+The shrinkage penalty has entirely removed one term (PC7) from the fit, but all of our terms have been regularized or "shrunk" from the MLE. The edf (effective degrees of freedom) informs us how many "effective" parameters are estimated for each component. For deeper discussion on this, see [my blog post on GAMs](https://michael-barr.com/datasci/gams_scams_pt1). We do not care about training $R^2$ or reported p-values - the first is a terrible estimate of predictive accuracy (it always improves by adding more parameters to the model), and the latter does not indicate predictive power of effects but is only appropriate for statistical inference around effect size.
+
+## Forecast
+
+Now we will again forecast out-of-time on the last 12 monthly periods (interpolated from 4 observed quarters)
+
+```{r, message=FALSE, warning=FALSE}
+gampreds <- predict(m4, newdata = X_pca[70:81, ] %>% as_tibble, type = "response")
+
+tibble(Observed = y.ts_month,
+       date = seq(as.Date("2014/1/1"), as.Date("2020/9/1"), by = "month"),
+       Forecast = c(rep(NA_real_, 69), gampreds)) %>%
+  tidyr::gather(key = "Series", value = "Y", Observed, Forecast) %>%
+  ggplot(aes(x = date, y = Y, color = Series)) +
+  geom_line() +
+  geom_point()
+```
+
+Some observations:
+
+- We have better captured the magnitude of the drop using more of the information in `X`
+- The forecast now expects the shock in March 2020, a month earlier than the earlier model detects it
+- The mean reversion now tracks better than the previous forecast from the model estimated with L1 penalty
+- This model has greater parsimony than the earlier Lasso regression - we spend only about 14 degrees of freedom here, compared to 41 with the Lasso
+- We lose interpretability due to the PCA, and somewhat due to the non-linear GAM model as well. But we gain much more in terms of prediction performance.
+
+## Final GAM
+
+Using all of the data
+
+```{r}
+gam.final <- gam(model_form,
+                 data = tibble(y = y.ts_month) %>% cbind(., X_pca %>% as_tibble),
+                 family = gaussian(),
+                 method = "GCV.Cp",
+                 select = TRUE)
+
+summary(gam.final)
+```
+
+# Model Save
+
+For use in our Forecast as a Service (FaaS)
+
+```{r}
+list(varlist = keep_list, pca = pca, model = gam.final) %>%
+  saveRDS("api/deploy.RDS")
+```
+

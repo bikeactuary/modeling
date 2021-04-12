@@ -1,0 +1,5 @@
+INFO [2021-04-03 11:08:35] 127.0.0.1 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/89.0.4389.90 Safari/537.36" localhost:15011 GET / 200 0.004
+INFO [2021-04-03 11:08:35] 127.0.0.1 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/89.0.4389.90 Safari/537.36" localhost:15011 GET /swagger-ui.css 200 0.004
+INFO [2021-04-03 11:08:35] 127.0.0.1 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/89.0.4389.90 Safari/537.36" localhost:15011 GET /swagger-ui-bundle.js 200 0.004
+INFO [2021-04-03 11:08:35] 127.0.0.1 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/89.0.4389.90 Safari/537.36" localhost:15011 GET /swagger-ui-standalone-preset.js 200 0.003
+INFO [2021-04-03 11:08:36] 127.0.0.1 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/89.0.4389.90 Safari/537.36" localhost:15011 GET /openapi.json 200 0.002

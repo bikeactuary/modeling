@@ -1,0 +1,223 @@
+Series,Description
+CES6562000101,"ALL EMPLOYEES, THOUSANDS Education and health services Health care Seasonally Adjusted : CES6562000101"
+CEU6562000101,"ALL EMPLOYEES, THOUSANDS Education and health services Health care Not Seasonally Adjusted : CEU6562000101"
+CES6562111101,"ALL EMPLOYEES, THOUSANDS Education and health services Offices of physicians, except mental health Seasonally Adjusted : CES6562111101"
+CEU6562111101,"ALL EMPLOYEES, THOUSANDS Education and health services Offices of physicians, except mental health Not Seasonally Adjusted : CEU6562111101"
+CES6562111201,"ALL EMPLOYEES, THOUSANDS Education and health services Offices of mental health physicians Seasonally Adjusted : CES6562111201"
+CEU6562111201,"ALL EMPLOYEES, THOUSANDS Education and health services Offices of mental health physicians Not Seasonally Adjusted : CEU6562111201"
+CES6562120001,"ALL EMPLOYEES, THOUSANDS Education and health services Offices of dentists Seasonally Adjusted : CES6562120001"
+CEU6562120001,"ALL EMPLOYEES, THOUSANDS Education and health services Offices of dentists Not Seasonally Adjusted : CEU6562120001"
+CES6562131001,"ALL EMPLOYEES, THOUSANDS Education and health services Offices of chiropractors Seasonally Adjusted : CES6562131001"
+CEU6562131001,"ALL EMPLOYEES, THOUSANDS Education and health services Offices of chiropractors Not Seasonally Adjusted : CEU6562131001"
+CES6562132001,"ALL EMPLOYEES, THOUSANDS Education and health services Offices of optometrists Seasonally Adjusted : CES6562132001"
+CEU6562132001,"ALL EMPLOYEES, THOUSANDS Education and health services Offices of optometrists Not Seasonally Adjusted : CEU6562132001"
+CES6562151101,"ALL EMPLOYEES, THOUSANDS Education and health services Medical laboratories Seasonally Adjusted : CES6562151101"
+CEU6562151101,"ALL EMPLOYEES, THOUSANDS Education and health services Medical laboratories Not Seasonally Adjusted : CEU6562151101"
+CES6562151201,"ALL EMPLOYEES, THOUSANDS Education and health services Diagnostic imaging centers Seasonally Adjusted : CES6562151201"
+CEU6562151201,"ALL EMPLOYEES, THOUSANDS Education and health services Diagnostic imaging centers Not Seasonally Adjusted : CEU6562151201"
+CES6562160001,"ALL EMPLOYEES, THOUSANDS Education and health services Home health care services Seasonally Adjusted : CES6562160001"
+CEU6562160001,"ALL EMPLOYEES, THOUSANDS Education and health services Home health care services Not Seasonally Adjusted : CEU6562160001"
+CES6562210001,"ALL EMPLOYEES, THOUSANDS Education and health services General medical and surgical hospitals Seasonally Adjusted : CES6562210001"
+CEU6562210001,"ALL EMPLOYEES, THOUSANDS Education and health services General medical and surgical hospitals Not Seasonally Adjusted : CEU6562210001"
+CES6562220001,"ALL EMPLOYEES, THOUSANDS Education and health services Psychiatric and substance abuse hospitals Seasonally Adjusted : CES6562220001"
+CEU6562220001,"ALL EMPLOYEES, THOUSANDS Education and health services Psychiatric and substance abuse hospitals Not Seasonally Adjusted : CEU6562220001"
+CES6562310001,"ALL EMPLOYEES, THOUSANDS Education and health services Nursing care facilities Seasonally Adjusted : CES6562310001"
+CEU6562310001,"ALL EMPLOYEES, THOUSANDS Education and health services Nursing care facilities Not Seasonally Adjusted : CEU6562310001"
+CES6562331201,"ALL EMPLOYEES, THOUSANDS Education and health services Assisted living facilities for the elderly Seasonally Adjusted : CES6562331201"
+CEU6562331201,"ALL EMPLOYEES, THOUSANDS Education and health services Assisted living facilities for the elderly Not Seasonally Adjusted : CEU6562331201"
+CES6562000107,AVERAGE WEEKLY HOURS OF PRODUCTION AND NONSUPERVISORY EMPLOYEES Education and health services Health care Seasonally Adjusted : CES6562000107
+CEU6562000107,AVERAGE WEEKLY HOURS OF PRODUCTION AND NONSUPERVISORY EMPLOYEES Education and health services Health care Not Seasonally Adjusted : CEU6562000107
+CES6562120007,AVERAGE WEEKLY HOURS OF PRODUCTION AND NONSUPERVISORY EMPLOYEES Education and health services Offices of dentists Seasonally Adjusted : CES6562120007
+CEU6562120007,AVERAGE WEEKLY HOURS OF PRODUCTION AND NONSUPERVISORY EMPLOYEES Education and health services Offices of dentists Not Seasonally Adjusted : CEU6562120007
+CES6562131007,AVERAGE WEEKLY HOURS OF PRODUCTION AND NONSUPERVISORY EMPLOYEES Education and health services Offices of chiropractors Seasonally Adjusted : CES6562131007
+CEU6562131007,AVERAGE WEEKLY HOURS OF PRODUCTION AND NONSUPERVISORY EMPLOYEES Education and health services Offices of chiropractors Not Seasonally Adjusted : CEU6562131007
+CES6562132007,AVERAGE WEEKLY HOURS OF PRODUCTION AND NONSUPERVISORY EMPLOYEES Education and health services Offices of optometrists Seasonally Adjusted : CES6562132007
+CEU6562132007,AVERAGE WEEKLY HOURS OF PRODUCTION AND NONSUPERVISORY EMPLOYEES Education and health services Offices of optometrists Not Seasonally Adjusted : CEU6562132007
+CES6562151107,AVERAGE WEEKLY HOURS OF PRODUCTION AND NONSUPERVISORY EMPLOYEES Education and health services Medical laboratories Seasonally Adjusted : CES6562151107
+CEU6562151107,AVERAGE WEEKLY HOURS OF PRODUCTION AND NONSUPERVISORY EMPLOYEES Education and health services Medical laboratories Not Seasonally Adjusted : CEU6562151107
+CES6562151207,AVERAGE WEEKLY HOURS OF PRODUCTION AND NONSUPERVISORY EMPLOYEES Education and health services Diagnostic imaging centers Seasonally Adjusted : CES6562151207
+CEU6562151207,AVERAGE WEEKLY HOURS OF PRODUCTION AND NONSUPERVISORY EMPLOYEES Education and health services Diagnostic imaging centers Not Seasonally Adjusted : CEU6562151207
+CES6562160007,AVERAGE WEEKLY HOURS OF PRODUCTION AND NONSUPERVISORY EMPLOYEES Education and health services Home health care services Seasonally Adjusted : CES6562160007
+CEU6562160007,AVERAGE WEEKLY HOURS OF PRODUCTION AND NONSUPERVISORY EMPLOYEES Education and health services Home health care services Not Seasonally Adjusted : CEU6562160007
+CES6562210007,AVERAGE WEEKLY HOURS OF PRODUCTION AND NONSUPERVISORY EMPLOYEES Education and health services General medical and surgical hospitals Seasonally Adjusted : CES6562210007
+CEU6562210007,AVERAGE WEEKLY HOURS OF PRODUCTION AND NONSUPERVISORY EMPLOYEES Education and health services General medical and surgical hospitals Not Seasonally Adjusted : CEU6562210007
+CES6562310007,AVERAGE WEEKLY HOURS OF PRODUCTION AND NONSUPERVISORY EMPLOYEES Education and health services Nursing care facilities Seasonally Adjusted : CES6562310007
+CEU6562310007,AVERAGE WEEKLY HOURS OF PRODUCTION AND NONSUPERVISORY EMPLOYEES Education and health services Nursing care facilities Not Seasonally Adjusted : CEU6562310007
+CES6562331207,AVERAGE WEEKLY HOURS OF PRODUCTION AND NONSUPERVISORY EMPLOYEES Education and health services Assisted living facilities for the elderly Seasonally Adjusted : CES6562331207
+CEU6562331207,AVERAGE WEEKLY HOURS OF PRODUCTION AND NONSUPERVISORY EMPLOYEES Education and health services Assisted living facilities for the elderly Not Seasonally Adjusted : CEU6562331207
+CES6562000108,AVERAGE HOURLY EARNINGS OF PRODUCTION AND NONSUPERVISORY EMPLOYEES Education and health services Health care Seasonally Adjusted : CES6562000108
+CEU6562000108,AVERAGE HOURLY EARNINGS OF PRODUCTION AND NONSUPERVISORY EMPLOYEES Education and health services Health care Not Seasonally Adjusted : CEU6562000108
+CES6562120008,AVERAGE HOURLY EARNINGS OF PRODUCTION AND NONSUPERVISORY EMPLOYEES Education and health services Offices of dentists Seasonally Adjusted : CES6562120008
+CEU6562120008,AVERAGE HOURLY EARNINGS OF PRODUCTION AND NONSUPERVISORY EMPLOYEES Education and health services Offices of dentists Not Seasonally Adjusted : CEU6562120008
+CES6562131008,AVERAGE HOURLY EARNINGS OF PRODUCTION AND NONSUPERVISORY EMPLOYEES Education and health services Offices of chiropractors Seasonally Adjusted : CES6562131008
+CEU6562131008,AVERAGE HOURLY EARNINGS OF PRODUCTION AND NONSUPERVISORY EMPLOYEES Education and health services Offices of chiropractors Not Seasonally Adjusted : CEU6562131008
+CES6562132008,AVERAGE HOURLY EARNINGS OF PRODUCTION AND NONSUPERVISORY EMPLOYEES Education and health services Offices of optometrists Seasonally Adjusted : CES6562132008
+CEU6562132008,AVERAGE HOURLY EARNINGS OF PRODUCTION AND NONSUPERVISORY EMPLOYEES Education and health services Offices of optometrists Not Seasonally Adjusted : CEU6562132008
+CES6562151108,AVERAGE HOURLY EARNINGS OF PRODUCTION AND NONSUPERVISORY EMPLOYEES Education and health services Medical laboratories Seasonally Adjusted : CES6562151108
+CEU6562151108,AVERAGE HOURLY EARNINGS OF PRODUCTION AND NONSUPERVISORY EMPLOYEES Education and health services Medical laboratories Not Seasonally Adjusted : CEU6562151108
+CES6562151208,AVERAGE HOURLY EARNINGS OF PRODUCTION AND NONSUPERVISORY EMPLOYEES Education and health services Diagnostic imaging centers Seasonally Adjusted : CES6562151208
+CEU6562151208,AVERAGE HOURLY EARNINGS OF PRODUCTION AND NONSUPERVISORY EMPLOYEES Education and health services Diagnostic imaging centers Not Seasonally Adjusted : CEU6562151208
+CES6562160008,AVERAGE HOURLY EARNINGS OF PRODUCTION AND NONSUPERVISORY EMPLOYEES Education and health services Home health care services Seasonally Adjusted : CES6562160008
+CEU6562160008,AVERAGE HOURLY EARNINGS OF PRODUCTION AND NONSUPERVISORY EMPLOYEES Education and health services Home health care services Not Seasonally Adjusted : CEU6562160008
+CES6562210008,AVERAGE HOURLY EARNINGS OF PRODUCTION AND NONSUPERVISORY EMPLOYEES Education and health services General medical and surgical hospitals Seasonally Adjusted : CES6562210008
+CEU6562210008,AVERAGE HOURLY EARNINGS OF PRODUCTION AND NONSUPERVISORY EMPLOYEES Education and health services General medical and surgical hospitals Not Seasonally Adjusted : CEU6562210008
+CES6562310008,AVERAGE HOURLY EARNINGS OF PRODUCTION AND NONSUPERVISORY EMPLOYEES Education and health services Nursing care facilities Seasonally Adjusted : CES6562310008
+CEU6562310008,AVERAGE HOURLY EARNINGS OF PRODUCTION AND NONSUPERVISORY EMPLOYEES Education and health services Nursing care facilities Not Seasonally Adjusted : CEU6562310008
+CES6562331208,AVERAGE HOURLY EARNINGS OF PRODUCTION AND NONSUPERVISORY EMPLOYEES Education and health services Assisted living facilities for the elderly Seasonally Adjusted : CES6562331208
+CEU6562331208,AVERAGE HOURLY EARNINGS OF PRODUCTION AND NONSUPERVISORY EMPLOYEES Education and health services Assisted living facilities for the elderly Not Seasonally Adjusted : CEU6562331208
+CES6562000134,"INDEXES OF AGGREGATE WEEKLY HOURS OF PRODUCTION AND NONSUPERVISORY EMPLOYEES, 2002=100 Education and health services Health care Seasonally Adjusted : CES6562000134"
+CEU6562000134,"INDEXES OF AGGREGATE WEEKLY HOURS OF PRODUCTION AND NONSUPERVISORY EMPLOYEES, 2002=100 Education and health services Health care Not Seasonally Adjusted : CEU6562000134"
+CES6562120034,"INDEXES OF AGGREGATE WEEKLY HOURS OF PRODUCTION AND NONSUPERVISORY EMPLOYEES, 2002=100 Education and health services Offices of dentists Seasonally Adjusted : CES6562120034"
+CEU6562120034,"INDEXES OF AGGREGATE WEEKLY HOURS OF PRODUCTION AND NONSUPERVISORY EMPLOYEES, 2002=100 Education and health services Offices of dentists Not Seasonally Adjusted : CEU6562120034"
+CES6562131034,"INDEXES OF AGGREGATE WEEKLY HOURS OF PRODUCTION AND NONSUPERVISORY EMPLOYEES, 2002=100 Education and health services Offices of chiropractors Seasonally Adjusted : CES6562131034"
+CEU6562131034,"INDEXES OF AGGREGATE WEEKLY HOURS OF PRODUCTION AND NONSUPERVISORY EMPLOYEES, 2002=100 Education and health services Offices of chiropractors Not Seasonally Adjusted : CEU6562131034"
+CES6562132034,"INDEXES OF AGGREGATE WEEKLY HOURS OF PRODUCTION AND NONSUPERVISORY EMPLOYEES, 2002=100 Education and health services Offices of optometrists Seasonally Adjusted : CES6562132034"
+CEU6562132034,"INDEXES OF AGGREGATE WEEKLY HOURS OF PRODUCTION AND NONSUPERVISORY EMPLOYEES, 2002=100 Education and health services Offices of optometrists Not Seasonally Adjusted : CEU6562132034"
+CES6562151134,"INDEXES OF AGGREGATE WEEKLY HOURS OF PRODUCTION AND NONSUPERVISORY EMPLOYEES, 2002=100 Education and health services Medical laboratories Seasonally Adjusted : CES6562151134"
+CEU6562151134,"INDEXES OF AGGREGATE WEEKLY HOURS OF PRODUCTION AND NONSUPERVISORY EMPLOYEES, 2002=100 Education and health services Medical laboratories Not Seasonally Adjusted : CEU6562151134"
+CES6562151234,"INDEXES OF AGGREGATE WEEKLY HOURS OF PRODUCTION AND NONSUPERVISORY EMPLOYEES, 2002=100 Education and health services Diagnostic imaging centers Seasonally Adjusted : CES6562151234"
+CEU6562151234,"INDEXES OF AGGREGATE WEEKLY HOURS OF PRODUCTION AND NONSUPERVISORY EMPLOYEES, 2002=100 Education and health services Diagnostic imaging centers Not Seasonally Adjusted : CEU6562151234"
+CES6562160034,"INDEXES OF AGGREGATE WEEKLY HOURS OF PRODUCTION AND NONSUPERVISORY EMPLOYEES, 2002=100 Education and health services Home health care services Seasonally Adjusted : CES6562160034"
+CEU6562160034,"INDEXES OF AGGREGATE WEEKLY HOURS OF PRODUCTION AND NONSUPERVISORY EMPLOYEES, 2002=100 Education and health services Home health care services Not Seasonally Adjusted : CEU6562160034"
+CES6562210034,"INDEXES OF AGGREGATE WEEKLY HOURS OF PRODUCTION AND NONSUPERVISORY EMPLOYEES, 2002=100 Education and health services General medical and surgical hospitals Seasonally Adjusted : CES6562210034"
+CEU6562210034,"INDEXES OF AGGREGATE WEEKLY HOURS OF PRODUCTION AND NONSUPERVISORY EMPLOYEES, 2002=100 Education and health services General medical and surgical hospitals Not Seasonally Adjusted : CEU6562210034"
+CES6562310034,"INDEXES OF AGGREGATE WEEKLY HOURS OF PRODUCTION AND NONSUPERVISORY EMPLOYEES, 2002=100 Education and health services Nursing care facilities Seasonally Adjusted : CES6562310034"
+CEU6562310034,"INDEXES OF AGGREGATE WEEKLY HOURS OF PRODUCTION AND NONSUPERVISORY EMPLOYEES, 2002=100 Education and health services Nursing care facilities Not Seasonally Adjusted : CEU6562310034"
+CES6562331234,"INDEXES OF AGGREGATE WEEKLY HOURS OF PRODUCTION AND NONSUPERVISORY EMPLOYEES, 2002=100 Education and health services Assisted living facilities for the elderly Seasonally Adjusted : CES6562331234"
+CEU6562331234,"INDEXES OF AGGREGATE WEEKLY HOURS OF PRODUCTION AND NONSUPERVISORY EMPLOYEES, 2002=100 Education and health services Assisted living facilities for the elderly Not Seasonally Adjusted : CEU6562331234"
+CES6562000156,"AGGREGATE WEEKLY HOURS OF ALL EMPLOYEES, THOUSANDS Education and health services Health care Seasonally Adjusted : CES6562000156"
+CEU6562000156,"AGGREGATE WEEKLY HOURS OF ALL EMPLOYEES, THOUSANDS Education and health services Health care Not Seasonally Adjusted : CEU6562000156"
+CES6562111156,"AGGREGATE WEEKLY HOURS OF ALL EMPLOYEES, THOUSANDS Education and health services Offices of physicians, except mental health Seasonally Adjusted : CES6562111156"
+CEU6562111156,"AGGREGATE WEEKLY HOURS OF ALL EMPLOYEES, THOUSANDS Education and health services Offices of physicians, except mental health Not Seasonally Adjusted : CEU6562111156"
+CES6562111256,"AGGREGATE WEEKLY HOURS OF ALL EMPLOYEES, THOUSANDS Education and health services Offices of mental health physicians Seasonally Adjusted : CES6562111256"
+CEU6562111256,"AGGREGATE WEEKLY HOURS OF ALL EMPLOYEES, THOUSANDS Education and health services Offices of mental health physicians Not Seasonally Adjusted : CEU6562111256"
+CES6562120056,"AGGREGATE WEEKLY HOURS OF ALL EMPLOYEES, THOUSANDS Education and health services Offices of dentists Seasonally Adjusted : CES6562120056"
+CEU6562120056,"AGGREGATE WEEKLY HOURS OF ALL EMPLOYEES, THOUSANDS Education and health services Offices of dentists Not Seasonally Adjusted : CEU6562120056"
+CES6562131056,"AGGREGATE WEEKLY HOURS OF ALL EMPLOYEES, THOUSANDS Education and health services Offices of chiropractors Seasonally Adjusted : CES6562131056"
+CEU6562131056,"AGGREGATE WEEKLY HOURS OF ALL EMPLOYEES, THOUSANDS Education and health services Offices of chiropractors Not Seasonally Adjusted : CEU6562131056"
+CES6562132056,"AGGREGATE WEEKLY HOURS OF ALL EMPLOYEES, THOUSANDS Education and health services Offices of optometrists Seasonally Adjusted : CES6562132056"
+CEU6562132056,"AGGREGATE WEEKLY HOURS OF ALL EMPLOYEES, THOUSANDS Education and health services Offices of optometrists Not Seasonally Adjusted : CEU6562132056"
+CES6562151156,"AGGREGATE WEEKLY HOURS OF ALL EMPLOYEES, THOUSANDS Education and health services Medical laboratories Seasonally Adjusted : CES6562151156"
+CEU6562151156,"AGGREGATE WEEKLY HOURS OF ALL EMPLOYEES, THOUSANDS Education and health services Medical laboratories Not Seasonally Adjusted : CEU6562151156"
+CES6562151256,"AGGREGATE WEEKLY HOURS OF ALL EMPLOYEES, THOUSANDS Education and health services Diagnostic imaging centers Seasonally Adjusted : CES6562151256"
+CEU6562151256,"AGGREGATE WEEKLY HOURS OF ALL EMPLOYEES, THOUSANDS Education and health services Diagnostic imaging centers Not Seasonally Adjusted : CEU6562151256"
+CES6562160056,"AGGREGATE WEEKLY HOURS OF ALL EMPLOYEES, THOUSANDS Education and health services Home health care services Seasonally Adjusted : CES6562160056"
+CEU6562160056,"AGGREGATE WEEKLY HOURS OF ALL EMPLOYEES, THOUSANDS Education and health services Home health care services Not Seasonally Adjusted : CEU6562160056"
+CES6562210056,"AGGREGATE WEEKLY HOURS OF ALL EMPLOYEES, THOUSANDS Education and health services General medical and surgical hospitals Seasonally Adjusted : CES6562210056"
+CEU6562210056,"AGGREGATE WEEKLY HOURS OF ALL EMPLOYEES, THOUSANDS Education and health services General medical and surgical hospitals Not Seasonally Adjusted : CEU6562210056"
+CES6562220056,"AGGREGATE WEEKLY HOURS OF ALL EMPLOYEES, THOUSANDS Education and health services Psychiatric and substance abuse hospitals Seasonally Adjusted : CES6562220056"
+CEU6562220056,"AGGREGATE WEEKLY HOURS OF ALL EMPLOYEES, THOUSANDS Education and health services Psychiatric and substance abuse hospitals Not Seasonally Adjusted : CEU6562220056"
+CES6562310056,"AGGREGATE WEEKLY HOURS OF ALL EMPLOYEES, THOUSANDS Education and health services Nursing care facilities Seasonally Adjusted : CES6562310056"
+CEU6562310056,"AGGREGATE WEEKLY HOURS OF ALL EMPLOYEES, THOUSANDS Education and health services Nursing care facilities Not Seasonally Adjusted : CEU6562310056"
+CES6562331256,"AGGREGATE WEEKLY HOURS OF ALL EMPLOYEES, THOUSANDS Education and health services Assisted living facilities for the elderly Seasonally Adjusted : CES6562331256"
+CEU6562331256,"AGGREGATE WEEKLY HOURS OF ALL EMPLOYEES, THOUSANDS Education and health services Assisted living facilities for the elderly Not Seasonally Adjusted : CEU6562331256"
+CES6562000181,"AGGREGATE WEEKLY HOURS OF PRODUCTION AND NONSUPERVISORY EMPLOYEES, THOUSANDS Education and health services Health care Seasonally Adjusted : CES6562000181"
+CEU6562000181,"AGGREGATE WEEKLY HOURS OF PRODUCTION AND NONSUPERVISORY EMPLOYEES, THOUSANDS Education and health services Health care Not Seasonally Adjusted : CEU6562000181"
+CES6562120081,"AGGREGATE WEEKLY HOURS OF PRODUCTION AND NONSUPERVISORY EMPLOYEES, THOUSANDS Education and health services Offices of dentists Seasonally Adjusted : CES6562120081"
+CEU6562120081,"AGGREGATE WEEKLY HOURS OF PRODUCTION AND NONSUPERVISORY EMPLOYEES, THOUSANDS Education and health services Offices of dentists Not Seasonally Adjusted : CEU6562120081"
+CES6562131081,"AGGREGATE WEEKLY HOURS OF PRODUCTION AND NONSUPERVISORY EMPLOYEES, THOUSANDS Education and health services Offices of chiropractors Seasonally Adjusted : CES6562131081"
+CEU6562131081,"AGGREGATE WEEKLY HOURS OF PRODUCTION AND NONSUPERVISORY EMPLOYEES, THOUSANDS Education and health services Offices of chiropractors Not Seasonally Adjusted : CEU6562131081"
+CES6562132081,"AGGREGATE WEEKLY HOURS OF PRODUCTION AND NONSUPERVISORY EMPLOYEES, THOUSANDS Education and health services Offices of optometrists Seasonally Adjusted : CES6562132081"
+CEU6562132081,"AGGREGATE WEEKLY HOURS OF PRODUCTION AND NONSUPERVISORY EMPLOYEES, THOUSANDS Education and health services Offices of optometrists Not Seasonally Adjusted : CEU6562132081"
+CES6562151181,"AGGREGATE WEEKLY HOURS OF PRODUCTION AND NONSUPERVISORY EMPLOYEES, THOUSANDS Education and health services Medical laboratories Seasonally Adjusted : CES6562151181"
+CEU6562151181,"AGGREGATE WEEKLY HOURS OF PRODUCTION AND NONSUPERVISORY EMPLOYEES, THOUSANDS Education and health services Medical laboratories Not Seasonally Adjusted : CEU6562151181"
+CES6562151281,"AGGREGATE WEEKLY HOURS OF PRODUCTION AND NONSUPERVISORY EMPLOYEES, THOUSANDS Education and health services Diagnostic imaging centers Seasonally Adjusted : CES6562151281"
+CEU6562151281,"AGGREGATE WEEKLY HOURS OF PRODUCTION AND NONSUPERVISORY EMPLOYEES, THOUSANDS Education and health services Diagnostic imaging centers Not Seasonally Adjusted : CEU6562151281"
+CES6562160081,"AGGREGATE WEEKLY HOURS OF PRODUCTION AND NONSUPERVISORY EMPLOYEES, THOUSANDS Education and health services Home health care services Seasonally Adjusted : CES6562160081"
+CEU6562160081,"AGGREGATE WEEKLY HOURS OF PRODUCTION AND NONSUPERVISORY EMPLOYEES, THOUSANDS Education and health services Home health care services Not Seasonally Adjusted : CEU6562160081"
+CES6562210081,"AGGREGATE WEEKLY HOURS OF PRODUCTION AND NONSUPERVISORY EMPLOYEES, THOUSANDS Education and health services General medical and surgical hospitals Seasonally Adjusted : CES6562210081"
+CEU6562210081,"AGGREGATE WEEKLY HOURS OF PRODUCTION AND NONSUPERVISORY EMPLOYEES, THOUSANDS Education and health services General medical and surgical hospitals Not Seasonally Adjusted : CEU6562210081"
+CES6562310081,"AGGREGATE WEEKLY HOURS OF PRODUCTION AND NONSUPERVISORY EMPLOYEES, THOUSANDS Education and health services Nursing care facilities Seasonally Adjusted : CES6562310081"
+CEU6562310081,"AGGREGATE WEEKLY HOURS OF PRODUCTION AND NONSUPERVISORY EMPLOYEES, THOUSANDS Education and health services Nursing care facilities Not Seasonally Adjusted : CEU6562310081"
+CES6562331281,"AGGREGATE WEEKLY HOURS OF PRODUCTION AND NONSUPERVISORY EMPLOYEES, THOUSANDS Education and health services Assisted living facilities for the elderly Seasonally Adjusted : CES6562331281"
+CEU6562331281,#N/A
+PCU62211A62211A2,General medical and surgical hospitals by patient type Medicare patients : PCU62211A62211A2
+PCU62211A62211A4,General medical and surgical hospitals by patient type Medicaid patients : PCU62211A62211A4
+PCU62211A62211A6,General medical and surgical hospitals by patient type Private insurance and all other patients : PCU62211A62211A6
+PCU62211A62211A61,General medical and surgical hospitals by patient type Private insurance patients : PCU62211A62211A61
+PCU62211A62211A62,General medical and surgical hospitals by patient type All other patients : PCU62211A62211A62
+PCU621111621111,"Offices of physicians, except mental health Offices of physicians, except mental health : PCU621111621111"
+PCU6211116211114,"Offices of physicians, except mental health One and two physician practices and single specialty group practices : PCU6211116211114"
+PCU621111621111411,"Offices of physicians, except mental health General/family practice : PCU621111621111411"
+PCU6211116211114111,"Offices of physicians, except mental health Medicare patients: general/family practice : PCU6211116211114111"
+PCU6211116211114112,"Offices of physicians, except mental health Medicaid patients: general/family practice : PCU6211116211114112"
+PCU6211116211114113,"Offices of physicians, except mental health Private insurance patients: general/family practice : PCU6211116211114113"
+PCU6211116211114114,"Offices of physicians, except mental health All other patients: general/family practice : PCU6211116211114114"
+PCU621111621111412,"Offices of physicians, except mental health Internal medicine : PCU621111621111412"
+PCU6211116211114121,"Offices of physicians, except mental health Medicare patients: internal medicine : PCU6211116211114121"
+PCU6211116211114122,"Offices of physicians, except mental health Medicaid patients: internal medicine : PCU6211116211114122"
+PCU6211116211114123,"Offices of physicians, except mental health Private insurance patients: internal medicine : PCU6211116211114123"
+PCU6211116211114124,"Offices of physicians, except mental health All other patients: internal medicine : PCU6211116211114124"
+PCU621111621111413,"Offices of physicians, except mental health General surgery and other surgical specialties : PCU621111621111413"
+PCU6211116211114131,"Offices of physicians, except mental health Medicare patients: surgical : PCU6211116211114131"
+PCU6211116211114132,"Offices of physicians, except mental health Medicaid patients: surgical : PCU6211116211114132"
+PCU6211116211114133,"Offices of physicians, except mental health Private insurance patients: surgical : PCU6211116211114133"
+PCU6211116211114134,"Offices of physicians, except mental health All other patients: surgical : PCU6211116211114134"
+PCU621111621111414,"Offices of physicians, except mental health Pediatrics : PCU621111621111414"
+PCU6211116211114142,"Offices of physicians, except mental health Medicaid patients: pediatrics : PCU6211116211114142"
+PCU6211116211114143,"Offices of physicians, except mental health Private insurance patients: pediatrics : PCU6211116211114143"
+PCU6211116211114144,"Offices of physicians, except mental health All other patients: pediatrics : PCU6211116211114144"
+PCU621111621111415,"Offices of physicians, except mental health Obstetrics/gynecology : PCU621111621111415"
+PCU6211116211114151,"Offices of physicians, except mental health Medicare patients: obstetrics/gynecology : PCU6211116211114151"
+PCU6211116211114152,"Offices of physicians, except mental health Medicaid patients: obstetrics/gynecology : PCU6211116211114152"
+PCU6211116211114153,"Offices of physicians, except mental health Private insurance patients: obstetrics/gynecology : PCU6211116211114153"
+PCU6211116211114154,"Offices of physicians, except mental health All other patients: obstetrics/gynecology : PCU6211116211114154"
+PCU621111621111419,"Offices of physicians, except mental health Other specialty : PCU621111621111419"
+PCU6211116211114191,"Offices of physicians, except mental health Medicare patients: other specialty : PCU6211116211114191"
+PCU6211116211114192,"Offices of physicians, except mental health Medicaid patients: other specialty : PCU6211116211114192"
+PCU6211116211114193,"Offices of physicians, except mental health Private insurance patients: other specialty : PCU6211116211114193"
+PCU6211116211114194,"Offices of physicians, except mental health All other patients: other specialty : PCU6211116211114194"
+PCU6211116211115,"Offices of physicians, except mental health Multispecialty group practice : PCU6211116211115"
+PCU6211116211115111,"Offices of physicians, except mental health Medicare patients: multispecialty group practice : PCU6211116211115111"
+PCU6211116211115112,"Offices of physicians, except mental health Medicaid patients: multispecialty group practice : PCU6211116211115112"
+PCU6211116211115113,"Offices of physicians, except mental health Private insurance patients: multispecialty group practice : PCU6211116211115113"
+PCU6211116211115114,"Offices of physicians, except mental health All other patients: multispecialty group practice : PCU6211116211115114"
+PCU621111621111P,"Offices of physicians, except mental health Primary services : PCU621111621111P"
+PCU621210621210,#N/A
+PCU6212106212101,#N/A
+PCU62121062121011,#N/A
+PCU62121062121012,#N/A
+PCU6212106212102,#N/A
+PCU62121062121021,#N/A
+PCU62121062121022,#N/A
+PCU6212106212103,#N/A
+PCU62121062121031,#N/A
+PCU62121062121032,#N/A
+PCU621210621210P,#N/A
+PCU621210621210SM,#N/A
+PCU524114524114,Direct health and medical insurance carriers Direct health and medical insurance carriers : PCU524114524114
+PCU5241145241141,Direct health and medical insurance carriers Medical service plans : PCU5241145241141
+PCU524114524114101,Direct health and medical insurance carriers Comprehensive medical service plans : PCU524114524114101
+PCU52411452411410101,Direct health and medical insurance carriers Group managed care medical service plans : PCU52411452411410101
+PCU52411452411410102,Direct health and medical insurance carriers Group fee-for-service medical service plans : PCU52411452411410102
+PCU52411452411410103,Direct health and medical insurance carriers Individual comprehensive medical service plans : PCU52411452411410103
+PCU524114524114103,Direct health and medical insurance carriers Non-comprehensive medical service plans : PCU524114524114103
+PCU52411452411410301,Direct health and medical insurance carriers Dental service plans : PCU52411452411410301
+PCU52411452411410302,Direct health and medical insurance carriers Supplemental Medicare service plans : PCU52411452411410302
+PCU52411452411410303,Direct health and medical insurance carriers Other medical service plans : PCU52411452411410303
+PCU5241145241142,Direct health and medical insurance carriers Indemnity health insurance plans : PCU5241145241142
+PCU524114524114P,Direct health and medical insurance carriers Primary services : PCU524114524114P
+PCU621511621511,Medical laboratories Medical laboratories : PCU621511621511
+PCU6215116215112,Medical laboratories Medical laboratory services : PCU6215116215112
+PCU62151162151123,Medical laboratories Medicare patients : PCU62151162151123
+PCU62151162151124,Medical laboratories Medicaid patients : PCU62151162151124
+PCU62151162151125,Medical laboratories Private insurance patients : PCU62151162151125
+PCU62151162151126,Medical laboratories All other patients : PCU62151162151126
+PCU621511621511P,Medical laboratories Primary services : PCU621511621511P
+PCU339113339113,#N/A
+PCU3391133391132,#N/A
+PCU33911333911321,#N/A
+PCU33911333911322,#N/A
+PCU33911333911327,#N/A
+PCU3391133391134,#N/A
+PCU3391133391136,#N/A
+PCU339113339113M,#N/A
+PCU339113339113P,#N/A
+PCU339113339113S,#N/A
+PCU621512621512,Diagnostic imaging centers Diagnostic imaging centers : PCU621512621512
+PCU6215126215124,Diagnostic imaging centers Diagnostic imaging services : PCU6215126215124
+PCU62151262151241,Diagnostic imaging centers Medicare and Medicaid patients : PCU62151262151241
+PCU62151262151242,Diagnostic imaging centers Private insurance and all other patients : PCU62151262151242
+PCU621512621512421,Diagnostic imaging centers Private insurance patients : PCU621512621512421
+PCU621512621512422,Diagnostic imaging centers All other patients : PCU621512621512422
+PCU621512621512P,Diagnostic imaging centers Primary services : PCU621512621512P

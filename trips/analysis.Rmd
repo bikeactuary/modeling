@@ -1,0 +1,786 @@
+---
+title: "Trip Analysis"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  html_document:
+    self_contained: true
+    theme: united
+    highlight: tango
+    code_folding: show
+    df_print: paged
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    number_sections: true
+---
+
+This report is organized as follows:
+
+1. **Environment:** for informational/peer review purposes
+1. **Train Data:** includes some exploratory data analysis on the training dataset.
+1. **Trip Data:** explores the structure of trip data, provides an efficient formula for calculating heading change, and proposes a rules-based logic for extracting turning and stopping features.
+1. **Feature Extraction:** here I implement the feature extraction logic in 3 key functions with some basic error handling. I also evaluate the feature extraction logic visually using a sample of trips, and propose some avenues for future methods/research. Finally, I evaluate the computational performance of this implementation.
+1. **Modeling:** The most substantial section, this includes the modeling workflow with sections for feature extraction, a simple imputation for missing data, model specification and hyperparameter tuning, and finally some post-modeling inference.
+1. **Test predictions:** informational, just forming predicted labels on the supplied test data.
+
+# Environment
+
+```{r}
+Sys.info()[-c(4,6:8)]
+```
+
+```{r}
+options(na.action = "na.fail")
+options(dplyr.summarise.inform = FALSE)
+knitr::opts_chunk$set(cache.path = "cache/",
+                      warning = FALSE)
+
+library(dplyr)
+library(magrittr)
+library(ggplot2)
+library(grid)
+library(gridExtra)
+library(corrplot)
+library(imputeTS)
+library(missRanger)
+library(ranger)
+library(caret)
+library(pdp)
+```
+
+
+```{r, eval = FALSE}
+## extract trip zip contents to new dirs train & test
+unzip(paste0(getwd(), "/trip_data_train.zip"), junkpaths = T, exdir = "train")
+unzip(paste0(getwd(), "/trip_data_test.zip"), junkpaths = T, exdir = "test")
+```
+
+```{r}
+list.files("train/") %>% glimpse
+list.files("test/") %>% glimpse
+```
+
+# Train data
+
+We start by loading the training set and inspecting the contents.
+
+```{r}
+train_raw <- read.csv("model_data_train.csv") %>% as_tibble
+glimpse(train_raw)
+```
+
+We will convert `feature1:feature3` to the factor class for modeling. We may also want `y` as a factor, depending on the libraries we use.
+
+```{r}
+train_raw %<>%
+  mutate(feature1 = feature1 %>% as.factor(),
+         feature2 = feature2 %>% as.factor(),
+         feature3 = feature3 %>% as.factor(),
+         y_fctr = paste0("Class_", y) %>% as.factor ) %>%
+  select(-y)
+```
+
+
+## Correlation analysis
+
+We plot the correlation matrix in order to understand linear relationships between the features
+
+```{r}
+train_raw %>%
+  select_if(is.numeric) %>% ## exclude response and boolean types
+  as.matrix() %>%
+  cor() %>% 
+  corrplot.mixed(lower.col = "black",  number.cex = .5, tl.cex = .6)
+```
+
+Let's also check the 3 binary factors
+
+```{r}
+train_raw %>% select(2, 4, 3) %>% table
+```
+
+We make the following observations about the dataset:
+
+1. `feature11` and `feature13` are co-linear
+1. `feature5` and `feature6` are co-linear
+1. `feature8` and `feature14` are co-linear
+1. `feature10` and `feature2` are both zero-variance (all observations are "False" for `feature2`)
+1. the remaining features are near perfectly independent of each other
+
+As a result, we will remove 4 features total (`feature10`, `feature2`, and one from each co-linear pair) without any loss of information.
+
+```{r}
+train_raw %<>% select(-c(feature10, feature2, feature11, feature5, feature8))
+
+train_raw %>%
+  select(-c(filename, feature1, feature3, y_fctr)) %>% ## exclude response and boolean types
+  as.matrix() %>%
+  cor() %>% 
+  corrplot.mixed(lower.col = "black",  number.cex = .5, tl.cex = .6)
+```
+
+## Distribution analysis
+
+Let's also look at some distribution statistics for each feature. This may inform modeling decisions later on - method selection and feature transformations, for example.
+
+```{r}
+summary(train_raw[,-1])
+```
+
+Most features are 'well-behaved'. For example `feature4` is reasonably symmetric without extreme outliers:
+
+```{r}
+train_raw %>% ggplot(aes(feature4)) + geom_density() + ggtitle("feature 4 distribution")
+```
+
+`feature12` and `feature13` stand out as being heavily right-skewed. See for example the density for `feature12`:
+
+```{r}
+train_raw %>% ggplot(aes(feature12)) + geom_density() + ggtitle("feature 12 distribution")
+```
+
+We may consider transforming these features later (for example, taking logs) depending on the modeling approach (some algorithms being invariant to monotonic transforms).
+
+We also note that our response variable is binary with imbalanced classes.
+
+# Trip data
+
+We will extract new features from the trip data files. Let's start by getting a feel for a single trip time series.
+
+```{r}
+## Picking any trip
+trip <- read.csv("train/0001.csv")
+rbind(head(trip, 10), tail(trip, 10))
+```
+
+Trips have a time for each reading which tends to be taken at a 1-second frequency, with possible exception at the start of the trip; they also have a speed reading (meters per second) and a heading (clockwise angle against magnetic north), although the nominal heading may not be as important as changes in heading (turning).
+
+Noticing there may be missing data at the beginning and ending of a trip, we will impute missing values via NOCB (next obs. carried backward) for the start, and the reverse (LOCF) at the tail. This is not necessarily a strong approach for missing data in the middle of a series, though it has the virtue that it will not fail with error.
+
+```{r}
+## impute missing values
+trip %<>% imputeTS::na_locf()
+```
+
+Let's plot the trip series
+
+```{r}
+gridExtra::grid.arrange(
+  ## speed (meters/sec) over time
+  trip %>%
+    ggplot(aes(time_seconds, speed_meters_per_second)) +
+    geom_path(color = "red") +
+    theme(axis.title.x=element_blank(),
+          axis.text.x=element_blank(),
+          axis.ticks.x=element_blank()),
+  ## heading over time (clockwise due north)
+  trip %>%
+    ggplot(aes(time_seconds, heading_degrees)) +
+    geom_path(color = "green")
+)
+```
+
+The sharp spikes at the end of the trip stand out - they are due to the fact that with heading degrees, the difference between 359 and 0 is 1 degree, not 359.
+
+## Heading Change
+
+We will use the following formula when measuring the degree of turn, denoted D:
+
+$$D = (h_t - h_{t-1} + 540) \pmod{360} - 180$$
+
+This optimized formulation avoids comparison logic around nominal heading and references the input values (current and previous heading) just once. Let's take first-order differences to get a feel for acceleration, and we will use the formula above to express the change in heading.
+
+```{r}
+trip %<>%
+  mutate(accel = speed_meters_per_second - lag(speed_meters_per_second),
+         heading_diff = (heading_degrees - lag(heading_degrees) + 540) %% 360 - 180)
+
+gridExtra::grid.arrange(
+  ## acceleration (meters/sec) over time
+  trip %>%
+    ggplot(aes(time_seconds, accel)) +
+    geom_path(color = "orange") +
+    theme(axis.title.x=element_blank(),
+          axis.text.x=element_blank(),
+          axis.ticks.x=element_blank()),
+  ## turn over time (clockwise due north)
+  trip %>%
+    ggplot(aes(time_seconds, heading_diff)) +
+    geom_path(color = "blue")
+)
+```
+
+## Turning
+
+Now we think about identifying turns. Our intuition tells us they should be characterized by:
+
+1. consecutive runs (given sampling) of substantial heading changes (first order differencing) of the same sign;
+1. the turn (run) should not be too long a duration, given the vehicle is moving (this may indicate road curvature rather than turning);
+1. the magnitude of the sum of heading differences within a run must exceed some threshold
+    - stated another way, the difference between the ending and the starting heading should exceed some threshold
+1. they also should correspond with travel at some appreciable velocity (not idling in place - this could occur due to instrument/measurement error) but also below some threshold velocity (which could again indicate taking curves at high speed).
+
+We will threshold a turn as having absolute heading magnitude change of 60 degrees or more. We will also exclude any instances where the average speed during the turn exceeded 20 m/s, or about 45 mph - the friction between road and tire is probably not sufficient to support turns at greater speed for most vehicles. Similarly, we will put an upper threshold on duration of the maneuver (45 seconds) so as not to misclassify long curves at lower speed. 
+
+```{r, fig.height=10, fig.width=8}
+trip %<>%
+  mutate(run = sign(heading_diff) * (abs(heading_diff) > .25)) %>%
+  group_by(runid = {runid = rle(run); rep(seq_along(runid$lengths), runid$lengths)}) %>% 
+  mutate(tot_heading_diff = (last(heading_degrees) - first(heading_degrees) + 540) %% 360 - 180,
+         avg_speed = mean(speed_meters_per_second),
+         turn_ind = n() > 2 &
+           abs(tot_heading_diff) >= 60 &
+           avg_speed < 20 &
+           n() < 45) %>%
+  ungroup() %>%
+  mutate(turn_amt = case_when(turn_ind ~ tot_heading_diff, TRUE ~ NA_real_))
+
+gridExtra::grid.arrange(
+  ## speed (meters/sec) over time
+  trip %>%
+    ggplot(aes(time_seconds, speed_meters_per_second)) +
+    geom_path(color = "red") +
+    theme(axis.title.x=element_blank(),
+          axis.text.x=element_blank(),
+          axis.ticks.x=element_blank()),
+  ## heading over time (clockwise due north)
+  trip %>%
+    ggplot(aes(time_seconds, heading_degrees)) +
+    geom_path(color = "green"),
+  
+  trip %>%
+    ggplot(aes(time_seconds, heading_diff)) +
+    geom_path(color = "blue") +
+    geom_line(aes(time_seconds, turn_amt), color = "brown")
+)
+```
+
+For this trip we observe 9 turns as we have defined them.
+
+## Stopping
+
+We will define a stop as an event where speed is approximately 0 m/s for at least 3 seconds, and which is preceded by decelleration. To be preceded by decelleration, the minimum acceleration within the 15 observations immediately preceding the start of a potential stopped vehicle must be < -0.5 m/s.
+
+```{r}
+trip %<>%
+  mutate(roll_accel_15 = lag(zoo::rollapply(accel, 15, min, align = "right", fill = NA)),
+         stop_run = abs(speed_meters_per_second) < .05) %>%
+  group_by(stop_runid = {stop_runid = rle(stop_run); rep(seq_along(stop_runid$lengths), stop_runid$lengths)}) %>%
+  mutate(stop_ind = n() > 2 & max(stop_run) & first(roll_accel_15) < -0.5)
+
+gridExtra::grid.arrange(
+  ## speed (meters/sec) over time
+  trip %>%
+    ggplot(aes(time_seconds, speed_meters_per_second, color = lead(stop_ind))) +
+    geom_path(aes(group = 1), show.legend = FALSE) +
+    theme(axis.title.x=element_blank(),
+          axis.text.x=element_blank(),
+          axis.ticks.x=element_blank() ),
+  ## acceleration
+  trip %>%
+    ggplot(aes(time_seconds, accel, color = lead(stop_ind))) +
+    geom_path(aes(group = 1), show.legend = FALSE) +
+    scale_color_manual(values=c("orange", "purple"))
+)
+```
+
+The single period in which the vehicle is stopped is brief and is indicated by different colors in the series.
+
+# Feature extraction
+
+We now define several functions to prep data from a trip file and extract the features according to the logic above.
+
+## prep_trip()
+
+The `prep_trip()` method will accept the filename input as a string, and the partition/sub-dir in which the file appears, defaulted to "train." It returned a data.frame which is augmented with new columns and is taken as input by the other methods below.
+
+```{r}
+prep_trip <- function(trip_file, partition = "train") {
+  
+  trip <- read.csv(paste0(partition, "/", trip_file))
+  n <- nrow(trip)
+  
+  if(n == 0 | ncol(trip) != 3 |  ## no rows or wrong num of cols
+     sum(is.na(trip[,2])) == n | sum(is.na(trip[,3])) == n | ## all missing data either col
+     var(trip[, 2], na.rm = T) == 0 | var(trip[,3], na.rm = T) == 0) { ## zero variance column
+    
+    bad_trip <<- trip  ## return bad trip data to parent environment for a look-see
+    stop(paste0("bad trip here: ", trip_file,
+                "\n   Speed NA: ", sum(is.na(trip[,2])),
+                "\n   Heading NA: ", sum(is.na(trip[,3])),
+                "\n   Speed variance: ", var(trip[, 2], na.rm = T),
+                "\n   Heading variance: ", var(trip[, 3], na.rm = T) ))
+  } ## early exit
+  
+  trip %>%
+    imputeTS::na_locf() %>%
+    ## turns
+    mutate(heading_diff = (heading_degrees - lag(heading_degrees) + 540) %% 360 - 180,
+           run = sign(heading_diff) * (abs(heading_diff) > .25)) %>%
+    group_by(runid = {runid = rle(run); rep(seq_along(runid$lengths), runid$lengths)}) %>% 
+    mutate(tot_heading_diff = (last(heading_degrees) - first(heading_degrees) + 540) %% 360 - 180,
+           avg_speed = mean(speed_meters_per_second),
+           turn_ind = n() > 2 &
+             abs(tot_heading_diff) >= 60 &
+             avg_speed < 20 &
+             n() < 45) %>%
+    ungroup() %>%
+    mutate(turn_amt = case_when(turn_ind ~ tot_heading_diff, TRUE ~ NA_real_)) %>%
+    ## stops
+    mutate(accel = speed_meters_per_second - lag(speed_meters_per_second),
+           roll_accel_15 = lag(zoo::rollapply(accel, 15, min, align = "right", fill = NA)),
+           stop_run = abs(speed_meters_per_second) < .05) %>%
+    group_by(stop_runid = {stop_runid = rle(stop_run); rep(seq_along(stop_runid$lengths), stop_runid$lengths)}) %>%
+    mutate(stop_ind = n() > 2 & max(stop_run) & first(roll_accel_15) < -.5) %>%
+    ungroup() %>%
+    return()
+}
+```
+
+## count_stops()
+
+This function takes as input the result from the `prep_data()` method, and returns a length 1 vector with the count of stops in the trip.
+
+```{r}
+count_stops <- function(trip = NULL) {
+  trip %>%
+    filter(stop_ind) %>%
+    group_by(stop_runid) %>%
+    summarise() %>% 
+    ungroup() %>%
+    nrow %>%
+    return()
+}
+```
+
+## count_turns()
+
+This function takes as input the result from the `prep_data()` method, and returns a length 1 vector with the count of turns in the trip.
+
+```{r}
+count_turns <- function(trip = NULL) {
+  trip %>%
+    filter(turn_ind) %>%
+    group_by(runid) %>%
+    summarise() %>% 
+    ungroup() %>%
+    nrow %>%
+    return()
+}
+```
+
+## plot_trip()
+
+This function will be used for a visual check of the turn & count logic - it applies the `prep_trip()` function and plots the results.
+
+```{r}
+plot_trip <- function(trip_file, return_df = FALSE) {
+  
+  trip <- prep_trip(trip_file)
+  if(return_df) return(trip)  ## break
+  
+  p <- arrangeGrob(
+    ## heading over time (clockwise due north)
+    trip %>%
+      ggplot(aes(time_seconds, heading_degrees, color = turn_ind)) +
+      geom_path(aes(group = 1), show.legend = FALSE) +
+      ggtitle(trip_file) +
+      scale_color_manual(values=c("green", "purple")) +
+      theme(axis.title.x=element_blank(),
+            axis.text.x=element_blank(),
+            axis.ticks.x=element_blank() ),
+    ## Change in heading
+    trip %>%
+      ggplot(aes(time_seconds, heading_diff)) +
+      geom_path(color = "blue") +
+      geom_line(aes(time_seconds, turn_amt), color = "brown") +
+      theme(axis.title.x=element_blank(),
+            axis.text.x=element_blank(),
+            axis.ticks.x=element_blank() ),
+    ## speed (meters/sec) over time
+    trip %>%
+      ggplot(aes(time_seconds, speed_meters_per_second, color = lead(stop_ind))) +
+      geom_path(aes(group = 1), show.legend = FALSE) +
+      theme(axis.title.x=element_blank(),
+            axis.text.x=element_blank(),
+            axis.ticks.x=element_blank() ),
+    ## acceleration/stops
+    trip %>%
+      ggplot(aes(time_seconds, accel, color = lead(stop_ind))) +
+      geom_path(aes(group = 1), show.legend = FALSE) +
+      scale_color_manual(values=c("orange", "blue")),
+    
+    ncol = 1
+  )
+  return(p)
+}
+```
+
+## Evalute feature logic
+
+I'll take a sample of trips, 5 from each class, and apply the plotting function defined above to visually check for reasonable results.
+
+```{r, fig.height=40, fig.width = 10, warning = FALSE}
+set.seed(42)
+small_samp <- train_raw %>% 
+  select(filename, y_fctr) %>%
+  group_by(y_fctr) %>% 
+  sample_n(5)
+
+plist <- lapply(small_samp %>% pull(filename), plot_trip ) ## apply plot_trip() over sample
+
+grid.arrange(
+  do.call(arrangeGrob, list(grobs = plist[1:5],
+                            top = textGrob("0-class", gp=gpar(fontsize=15, font=3, col="red")),
+                            ncol = 1, as.table = F) ),
+  do.call(arrangeGrob, list(grobs = plist[6:10], 
+                            top = textGrob("1-class", gp=gpar(fontsize=15, font=3, col="red")),
+                            ncol = 1, as.table = F) ),
+  ncol = 2
+)
+```
+
+The results seem reasonable, though not perfect. For example, in `0973.csv` there appears to be a stop which is missed due to a noisy speed reading, which could be due to measurement error in the sensor or a driver who likes to play with the brake pedal at lights. 
+
+One avenue for improvement will be data smoothing - e.g. via smoothing splines, simple kernels/filters, kriging, etc. - as part of a pre-processing step.
+
+Another avenue includes techniques based on the **matrix profile** - specifically, shapelet and motif discovery.^[Yeh, et al."Time series joins, motifs, discords, and shapelets: a unifying view that exploits the matrix profile." 2017. https://www.cs.ucr.edu/~eamonn/MP_journal.pdf] These methods involve discovering subsequences within a series which are similar to each other and/or maximally separating of classes.
+
+## Computational Performance
+
+For a single trip, we must first call `prep_trip()` which reads the relevant file from disk and returns a data.frame object. Then we call each of `count_turns()` and `count_stops()` which takes the data.frame as input and returns a length 1 vector for each. The computational time for 10 sequential iterations is shown below:
+
+```{r}
+comp_eval <- function(x) {
+  a <- prep_trip("0001.csv")
+  b <- count_turns(a)
+  c <- count_stops(a)
+  return()
+}
+
+v <- small_samp %>% pull(filename)
+
+print(paste0("Test performed for ", length(v), " files sequentially"))
+system.time({
+  lapply(v, comp_eval )
+})
+
+rm(v, comp_eval)
+```
+
+For 10 trips clock time is about half a second, but CPU (system) time is a marginal fraction of this. Most of the overhead is due to instructions and disk I/O.
+
+The process will scale over multiple files with ~O(n) (linear time) complexity.
+
+# Modeling
+
+We turn now to the modeling analysis, right after we prepare our training data
+
+## Extract Training features
+
+First let's prepare our features for the training set
+
+```{r, message=TRUE}
+train_newx <- tibble(filename = NA_character_, stop_count = NA_integer_, turn_count = NA_integer_) %>% slice(-1)
+
+for(i in 1:nrow(train_raw)) {
+  
+  f <- train_raw[i,] %>% pull(filename)
+  
+  trip_result <- tryCatch({
+    trip <- prep_trip(f)
+  },
+  error = function(cond) {
+    message(paste0("prep_trip() failed for file ", f, " with following error: \n", cond))
+    return(cond)
+  } )
+  
+  if(inherits(trip_result, "error")) {
+    train_newx %<>% add_row(filename = f, stop_count = NA_integer_, turn_count = NA_integer_)
+    next()
+  }
+  
+  train_newx %<>%
+    add_row(filename = f,
+            stop_count = count_stops(trip),
+            turn_count = count_turns(trip) )
+  
+  rm(trip, f)
+}
+
+```
+
+Bind the 2 new features to the training data, `stop_count` and `turn_count`. The result will be in original order so we do not need to join.
+
+```{r}
+train <- cbind(train_raw, train_newx[,-1])
+```
+
+Trip 0195 failed due to zero variance in the heading vector. Counts will be `NA` for this record.
+
+## Impute NA
+
+We will impute the missing values in order to use all observations in modeling.
+
+```{r}
+lhs <- c("turn_count", "stop_count")
+rhs <- colnames(train)[!(colnames(train) %in% c(lhs, c("filename", "y_fctr")))]
+imp_formula <- paste(paste(lhs, collapse = " + "), paste(rhs, collapse=" + "), sep=" ~ ") %>% as.formula()
+
+imp_formula
+train %<>% missRanger(imp_formula,
+                      pmm.k = 5,
+                      num.trees = 500,
+                      sample.fraction = .6,
+                      max.depth = 1,
+                      data = .,
+                      maxiter = 10L,
+                      returnOOB = TRUE,
+                      seed = 123,
+                      verbose = 2)
+```
+
+## Model Tuning
+
+We will use the random forest algorithm as implemented in the `ranger` library. We prefer a simple and computationally fast approach - random forest provides a strong off-the-shelf classifier with few hyperparameters requiring tuning (as compared to say gradient boosting or neural networks) and is extremely parallelizable.
+
+The two main hyperparameters we will tune with repeated cross-validation are: the number of features to randomly select for each potential split (`mtry`); and the minimum number of observations required in each node (`min.node.size`). The latter controls model complexity and overfitting - we will not tune or use `max.depth` which also has the effect of reducing complexity of individual learners.
+
+We will also evaluate two possible split rules - the traditional gini impurity, as well as more recent hellinger distance. The former favors splits which result in imbalanced class distribution within leaf nodes. Hellinger distance by contrast favors splits which result in an even class distribution within leaf nodes; the rule generally results in better (higher) sensitivity, with minimal loss in specificity.^[Lyon, et al. "Hellinger Distance Trees for Imbalanced Streams." 2014. https://arxiv.org/pdf/1405.2278.pdf]
+
+Setting up our grid and controls for tuning
+
+```{r}
+k <- 10 ## folds
+r <- 10 ## repeats 
+num.trees <- 2000 ## rf does not overfit by num.trees, but through complexity of individual learners
+
+rfGrid <- expand.grid(mtry = 1:4,
+                      min.node.size = seq(15, 30, 5), 
+                      splitrule = c("gini", "hellinger") )
+
+seeds <- hsbtools::make_seeds(grid = rfGrid,
+                              k = k,
+                              r = r,
+                              alpha.seed = 4242)
+
+trnCtrl <- caret::trainControl(method = "repeatedcv",
+                               number = k,
+                               repeats = r,
+                               summaryFunction = twoClassSummary,
+                               seeds = seeds,
+                               returnData = FALSE,
+                               classProbs = TRUE,
+                               savePredictions = FALSE)
+```
+
+Run the learning procedure
+
+```{r rfFit, cache = T}
+rf.cv <- caret::train(y_fctr ~ .,
+                      method = "ranger",
+                      verbose = F,
+                      tuneGrid = rfGrid,
+                      trControl = trnCtrl,
+                      num.trees = num.trees,
+                      importance = "impurity", ## feature importance basis
+                      metric = "ROC", ## poorly named, AUC really
+                      data = train[, -1], ## omit filename
+                      na.action = na.fail) ## no NAs, or else do not move past them silently
+```
+
+View the estimated AUC across our hyperparameter grid
+
+```{r}
+plot(rf.cv)
+```
+
+
+We will select the best result from the above set of evaluations - `hellinger` distance split rule with `mtry = 2` and `min.node.size = 15`
+
+## Final rf Model
+
+Now train the model using the optimal hyperparameters. We will plot feature importance based on gini impurity. Note that our model returns class probabilities rather than class labels - we prefer this so we can choose the threshold for labeling later, which may not be 0.5 if we have unequal penalties from each type of misclassification (false negatives and false positives).
+
+```{r}
+rf.1 <- ranger(y_fctr ~ .,
+               num.trees = num.trees,
+               mtry = rf.cv$bestTune$mtry,
+               min.node.size = rf.cv$bestTune$min.node.size,
+               importance = "impurity",
+               probability = TRUE,
+               splitrule = rf.cv$bestTune$splitrule,
+               data = train[,-1],
+               seed = 42)
+
+varImp <- importance(rf.1) %>% .[order(desc(.))]
+plot(varImp, xaxt="n", xlab="", ylab = "Gini importance")
+axis(1,at=1:length(varImp),labels=names(varImp), las=2)
+```
+
+`feature7` provide the highest predictive contribution, `feature1` and `feature3` provide the least amount of information. We also note that our bespoke features extracted from the trip data contain some signal of our response, though they are also not the strongest predictors. We will look closer at the nature of these contributions in the next section.
+
+## Model Inference
+
+To provide fair estimates of predictive power we want to form predictions from our model on new (unseen) data. One nice feature of random forests is that they come with a built-in hold-out sample at each iteration in the form of the out-of-bag (OOB) samples. Ranger has already created out-of-bag predictions for us which we will use to calculate a confusion matrix and the more generalized AUC.
+
+```{r}
+oob_pred <- tibble(y_fctr = train$y_fctr,
+                   p = rf.1$predictions[, 2]) %>% ## out of bag predictions
+  mutate(predicted_label = case_when(p >= .5 ~ "Class_1", TRUE ~  "Class_0") %>% as.factor)
+```
+
+### Confusion Matrix
+
+We assume equal cost of misclassification for each class by setting our probability threshold at 0.50 for label prediction. If we knew that false positives were more "expensive" for us than false negatives or *vice versa*, then this threshold should be adjusted accordingly to minimize the total cost incurred from misclassification in production.
+
+```{r}
+cm <- confusionMatrix(oob_pred$predicted_label, oob_pred$y_fctr, "Class_1")
+cm
+```
+
+The specificity (= 1 - false positive rate) of our classifier is ~.94 - we do a good job of avoiding "false alarms" of mislabeling cases as positive. The sensitivity (= 1 - false negative rate, aka recall) of ~.67 tells us how good we are at detecting positive cases. Precision - the proportion of positive-labeled cases which are truly positive - of .83 tells us that most of our positive predictions are accurate. By setting the decision threshold at .50, we have sought to maximize overall accuracy, estimated as ~86%.
+
+### AUC
+
+To get the decision matrix above, we had to choose a threshold (.50) to move from a predicted probability of an observation being in Class 1 to actually labeling the observation as a 1 or 0. The ROC curve shows the tradeoff between sensitivity and specificity as we vary the threshold between 0.0 and 1.0 for labeling a case positive. In a way then it is like a continuous confusion matrix.
+
+```{r}
+pROC_obj <- pROC::roc(oob_pred$y_fctr, oob_pred$p,
+          ci=TRUE, ci.alpha=0.8, stratified=FALSE,
+          plot = TRUE, auc.polygon=TRUE, max.auc.polygon=TRUE,
+          grid=TRUE, print.auc=TRUE, show.thres=TRUE)
+
+sens.ci <- pROC::ci.se(pROC_obj)
+plot(sens.ci, type="shape", col="lightblue") ## low resolution shape may not fully contain ROC
+plot(sens.ci, type="bars")
+points(cm$byClass["Specificity"], cm$byClass["Sensitivity"], col = "red", lwd = 2)
+```
+
+The curve shows the tradeoff between the two types of misclassifications, with the red circle indicating how we have calibrated with a .50 decision threshold. We can increase our sensitivity and correctly label more positive cases, but we will increase our mis-labeling of the negative cases at the same time. Due to the class imbalance (negative cases are about 2/3 of the data), a 1 point reduction in specificity must be offset by at least a 2 point improvement in sensitivity, roughly speaking and still assuming equal cost of errors.
+
+### Predictors
+
+We want to understand the nature of the relationship between our features and the response. Since there is just a handful of features, we can look at individual conditional expectation (ICE) plots for each. Like partial dependence plots, these show the average marginal effect of a feature, but in addition they show the marginal effect for individual observations in the training set. This helps us understand if there were important interactions between variables learned in our forest.
+
+We are selecting 4 of the 11 features to plot below
+
+```{r}
+ice <- vector("list", length = 4)
+names(ice) <- names(varImp)[c(1,3,8,9)]
+
+for (i in 1:length(ice)) {
+  icePartial <- partial(rf.1, 
+                        pred.var = names(ice)[i],
+                        pred.fun = function(object, newdata) predict(object, newdata)$predictions[,2])
+  ice[[i]] <- plotPartial(icePartial, rug = TRUE, train = train, alpha = 0.1, ylab = "Predicted P[y=1]")
+}
+
+lapply(ice, plot)
+```
+
+We observe that `turn_count` interacts with another feature in our model - the marginal effect of moving above 3 turns appears to depend on the value of some other variable. If we dig further we can find out what feature this is and use the information to specify interactions say in a parametric model - work for a future analysis.
+
+The marginal effect of `stop_count` appears to be weak and perhaps counter-intuitive in its direction. We should revisit the extraction logic for this feature, or perhaps consider other features which more completely describe the nuance of driving behavior - repeated stopping at low speed, hard stopping, rapid deceleration to a near stop, etc.
+
+# Test predictions
+
+Creating the test dataset
+
+```{r}
+test_raw <- read.csv("model_data_test.csv") %>%
+  as_tibble %>%
+  mutate(feature1 = feature1 %>% as.factor(),
+         feature2 = feature2 %>% as.factor(),
+         feature3 = feature3 %>% as.factor() ) %>%
+  select(-c(feature10, feature2, feature11, feature5, feature8))
+
+test_newx <- tibble(filename = NA_character_, stop_count = NA_integer_, turn_count = NA_integer_) %>% slice(-1)
+
+for(i in 1:nrow(test_raw)) {
+  
+  f <- test_raw[i,] %>% pull(filename)
+  
+  trip_result <- tryCatch({
+    trip <- prep_trip(f, "test")
+  },
+  error = function(cond) {
+    message(paste0("prep_trip() failed for file ", f, " with following error: "))
+    message(cond)
+    return(cond)
+  } )
+  
+  if(inherits(trip_result, "error")) {
+    test_newx %<>% add_row(filename = f, stop_count = NA_integer_, turn_count = NA_integer_)
+    next()
+  }
+  
+  test_newx %<>%
+    add_row(filename = f,
+            stop_count = count_stops(trip),
+            turn_count = count_turns(trip) )
+  
+  rm(trip, f)
+}
+
+test <- cbind(test_raw, test_newx[,-1])
+
+## Check for NAs in features
+apply(test, 2, function(x) sum(is.na(x)))
+```
+
+Labeling with the final model. Note that we assume equal cost of misclassification for each class by setting our decision bound at 0.5. If we knew that false positives were more "expensive" to us than false negatives or *vice versa*, this threshold should be adjusted accordingly to minimize the cost incurred from misclassification.
+
+```{r}
+test_preds <- tibble(filename = test$filename,
+                     pr_class_1 = predict(rf.1, test)[[1]][,"Class_1"]) %>%
+  mutate(prediction = case_when(pr_class_1 >= .5 ~ 1,
+                                TRUE ~ 0)) %>%
+  select(-pr_class_1)
+
+head(test_preds)
+write.csv(test_preds, "test_yhat.csv", row.names = FALSE)
+```
+
+# Appendix
+
+## SVM
+
+Better cross-validated AUC with SVM.
+
+```{r}
+svmGrid <- expand.grid(C = seq(2, 40, 2),
+                       sigma = seq(.01, .05, .005))
+
+seeds.svm <- hsbtools::make_seeds(grid = svmGrid,
+                                  k = k,
+                                  r = r,
+                                  alpha.seed = 4242)
+
+trnCtrl.svm <- caret::trainControl(method = "repeatedcv",
+                                   number = k,
+                                   repeats = r,
+                                   summaryFunction = twoClassSummary,
+                                   seeds = seeds.svm,
+                                   returnData = FALSE,
+                                   classProbs = TRUE,
+                                   savePredictions = FALSE)
+
+svmfit <- caret::train(y_fctr ~ .,
+                       verbose = F,
+                       tuneGrid = svmGrid,
+                       trControl = trnCtrl.svm,
+                       method = "svmRadial",
+                       preProcess = c("center", "scale"),
+                       importance = "impurity", ## feature importance basis
+                       metric = "ROC", ## poorly named, AUC really
+                       data = train[, -1], ## omit filename
+                       na.action = na.fail,
+                       verbose = T)
+
+plot(svmfit)
+```
+
+
+# References
+
